@@ -41,7 +41,9 @@ instead of "0 to 5", "5 to 10". Implies \code{closure = "left"}.}
 \code{NULL} uses \code{label_map(style = "interval", open = TRUE)}.}
 
 \item{...}{Extra arguments for the style, passed to \code{\link[=compute_breaks]{compute_breaks()}}
-(\code{step} for \code{sd}, \code{thr} for \code{headtails}, \code{large_n}, \code{seed}, ...).}
+(\code{step} for \code{sd}, \code{thr} for \code{headtails}, \code{large_n}, \code{seed}, and
+\code{midpoint}, \code{mirror}, \code{center}, \code{band} for a diverging variable classed
+symmetrically, where \code{n} is classes per side).}
 }
 \value{
 A data frame of class \code{ggcarto_class_summary} with one row per
@@ -65,6 +67,10 @@ class_summary(x, "quantile", 4, labels = label_map(digits = 0))
 # counts: integer breaks, "0 to 4" style labels
 k <- rpois(200, 3)
 class_summary(k, "quantile", 4, as_count = TRUE)
+
+# a change variable, three classes each side of zero
+chg <- c(rnorm(200, 0, 20), 90, 130)
+class_summary(chg, "fisher", 3, midpoint = 0, mirror = "value")
 
 # the table underneath
 s <- class_summary(x, "equal", 5)

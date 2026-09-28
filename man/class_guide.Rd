@@ -38,7 +38,10 @@ integers, classes are left-closed, and labels read "0 to 4", "5 to 9"
 instead of "0 to 5", "5 to 10". Implies \code{closure = "left"}.}
 
 \item{...}{Extra arguments for the style, passed to \code{\link[=compute_breaks]{compute_breaks()}};
-\verb{breaks = } for \code{style = "fixed"}.}
+\verb{breaks = } for \code{style = "fixed"}; \code{midpoint}, \code{mirror}, \code{center} and
+\code{band} for a diverging variable classed symmetrically, in which case
+every candidate \code{n} is classes \emph{per side} and the readability rating
+applies to the total.}
 
 \item{type}{For \code{plot()}: \code{"fit"} shows fit and gain against \code{n};
 \code{"balance"} shows the share of observations in every class at every \code{n}.}

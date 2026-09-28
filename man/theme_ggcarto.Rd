@@ -7,23 +7,37 @@
 theme_ggcarto(
   base_size = 11,
   base_family = "",
-  legend = "bottom",
-  axes = FALSE,
-  paper = ggcarto_colours()[["paper"]]
+  title_family = NULL,
+  legend = c("bottom-left", "bottom", "bottom-right", "right", "left", "top", "top-left",
+    "top-right", "inset", "none"),
+  variant = c("light", "dark", "print"),
+  panel = c("none", "grey"),
+  axes = FALSE
 )
 }
 \arguments{
-\item{base_size}{Base font size in points.}
+\item{base_size}{Base font size in points. Title, subtitle, caption and
+legend text are scaled from it.}
 
-\item{base_family}{Font family.}
+\item{base_family}{Font family for all text; \code{""} is the device default.}
 
-\item{legend}{Where the legend goes: \code{"bottom"}, \code{"right"}, \code{"top"},
-\code{"left"}, \code{"none"}, or a length-2 numeric for inside the panel.}
+\item{title_family}{Font family for the title alone, e.g. a serif to
+contrast with a sans body. \code{NULL} inherits \code{base_family}.}
+
+\item{legend}{Where the legend goes: \code{"bottom-left"} (default),
+\code{"bottom"}, \code{"bottom-right"}, \code{"right"}, \code{"left"}, \code{"top"},
+\code{"top-left"}, \code{"top-right"}, \code{"inset"} (inside the panel, top left) or
+\code{"none"}. Legends along the bottom or top are laid out horizontally.}
+
+\item{variant}{\code{"light"} (warm paper), \code{"dark"} (near-black canvas, light
+text) or \code{"print"} (smaller type, legend right, tight margins, white).}
+
+\item{panel}{Background behind the map itself: \code{"none"} (the canvas) or
+\code{"grey"}, a light grey that makes very pale classes and white polygons
+visible.}
 
 \item{axes}{Keep axis text and horizontal gridlines (for charts rather
 than maps).}
-
-\item{paper}{Background colour; \code{NA} for transparent.}
 }
 \value{
 A ggplot2 theme.
@@ -31,21 +45,35 @@ A ggplot2 theme.
 \description{
 A complete ggplot2 theme for choropleths: a warm off-white background,
 a bold navy title, grey subtitle and caption, no axes, no grid, and a
-legend that sits under the map by default. It is what the maps in the
-ggcarto tutorial use. With \code{axes = TRUE} it keeps a quiet y axis and
-horizontal gridlines, which is how \code{\link[=plot_breaks]{plot_breaks()}} and
-\link[=class_guide]{plot()} draw the diagnostic charts.
+legend that sits under the map, at the left, where a reader starts. It is
+what the maps in the ggcarto tutorial use. \code{variant = "dark"} inverts it
+for a dark page (reverse a sequential palette so its dark end stays
+legible); \code{"print"} shrinks the type, moves the legend to the right and
+tightens the margins for a figure in a two-column paper. With
+\code{axes = TRUE} it keeps a quiet y axis and horizontal gridlines, which is
+how \code{\link[=plot_breaks]{plot_breaks()}} and \link[=class_guide]{plot()} draw the diagnostic charts.
+}
+\details{
+Pair it with \code{\link[=guide_map]{guide_map()}} for the legend's own layout (a framed, ticked
+bar of a sensible length; keys in reading order), and with
+\code{geom_sf(colour = "white", linewidth = 0.1)} for polygon borders that
+recede.
 }
 \examples{
 library(ggplot2)
 if (requireNamespace("sf", quietly = TRUE)) {
-  ggplot(northeast_counties) +
+  p <- ggplot(northeast_counties) +
     geom_sf(aes(fill = unemployment), colour = "white", linewidth = 0.1) +
     scale_fill_intervals("brewer::YlOrRd", "fisher", 5,
-                         labels = label_map(style = "interval", suffix = "\%",
-                                            digits = 1, open = TRUE)) +
+                         labels = label_map(style = "interval", suffix = "\%", digits = 1),
+                         guide = guide_map("keys")) +
     labs(title = "Unemployment rate", subtitle = "Northeast counties, ACS 2015-2019",
-         caption = "Source: American Community Survey", fill = NULL) +
-    theme_ggcarto()
+         caption = "Source: American Community Survey", fill = NULL)
+  p + theme_ggcarto()
+  p + theme_ggcarto(legend = "right", variant = "print")
+  p + theme_ggcarto(variant = "dark")
 }
+}
+\seealso{
+\code{\link[=guide_map]{guide_map()}}, \code{\link[=ggcarto_colours]{ggcarto_colours()}}, \code{\link[=theme_palettes]{theme_palettes()}}
 }

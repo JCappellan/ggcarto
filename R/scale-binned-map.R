@@ -44,6 +44,8 @@ ScaleBinnedMap <- ggplot2::ggproto(
   label_parts = NULL,       # formatting pieces from label_map()
   as_count = FALSE,         # integer classes, labelled "0 to 4", "5 to 9"
   unique_labels = FALSE,    # style = "unique": label each class by its value
+  full_breaks = NULL,       # mirrored breaks, kept whole for the palette
+  palette_fn = NULL,        # function(n) -> n colours, for full_breaks
   ggcarto = NULL,           # the call's choices, for diagnose_map()
 
   train = function(self, x) {
@@ -89,6 +91,7 @@ ScaleBinnedMap <- ggplot2::ggproto(
         if (length(vals)) {
           b <- self$map_breaks_fn(vals)
           if (length(b) >= 2L) self$frozen_breaks <- b
+          if (is_mirrored(b)) self$full_breaks <- b
         }
       }
       if (!is.null(self$frozen_breaks)) {
@@ -101,9 +104,40 @@ ScaleBinnedMap <- ggplot2::ggproto(
     ggplot2::ggproto_parent(ggplot2::ScaleBinned, self)$get_breaks(limits)
   },
 
+  # Mirrored breaks: colour by position in the *whole* symmetric set, so the
+  # palette's neutral colour stays on the midpoint even when the data reach
+  # further on one side than the other. ggplot2 would otherwise spread the
+  # palette over only the classes that are drawn.
+  map = function(self, x, limits = self$get_limits()) {
+    full <- self$full_breaks
+    if (is.null(full) || !is.function(self$palette_fn)) {
+      return(ggplot2::ggproto_parent(ggplot2::ScaleBinned, self)$map(x, limits))
+    }
+    tr <- scale_transformation(self)
+    ft <- if (!is.null(tr) && !identical(tr$name, "identity")) tr$transform(as.numeric(full)) else as.numeric(full)
+    x <- self$oob(x, limits)
+    idx <- assign_classes(x, ft, if (isTRUE(self$right)) "right" else "left")
+    cols <- self$palette_fn(length(ft) - 1L)
+    out <- cols[idx]
+    out[is.na(out)] <- self$na.value
+    out
+  },
+
   get_labels = function(self, breaks = self$get_breaks()) {
     if (is.null(breaks) || !(isTRUE(self$interval_labels) || isTRUE(self$unique_labels))) {
-      return(ggplot2::ggproto_parent(ggplot2::ScaleBinned, self)$get_labels(breaks))
+      labs <- ggplot2::ggproto_parent(ggplot2::ScaleBinned, self)$get_labels(breaks)
+      # Value ticks on a stepped bar: the limit ticks say "or more" / "or
+      # less" where values were squished past them, as on a colourbar.
+      p <- self$label_parts
+      if (!is.null(p) && !is.null(breaks) && length(labs) == length(breaks)) {
+        lims <- self$get_limits()
+        open <- resolve_open(p$open, squished_ends(self$data_values, lims))
+        tol <- 1e-8 * pmax(1, abs(lims))
+        lo <- which(abs(breaks - lims[1]) <= tol[1]); hi <- which(abs(breaks - lims[2]) <= tol[2])
+        if (open[1] && length(lo)) labs[lo] <- paste0(labs[lo], p$or_less)
+        if (open[2] && length(hi)) labs[hi] <- paste0(labs[hi], p$or_more)
+      }
+      return(labs)
     }
     p <- self$label_parts %||% attr(label_map(style = "interval"), "parts")
 
@@ -142,8 +176,14 @@ ScaleBinnedMap <- ggplot2::ggproto(
     # One decimal count for every edge, so "8.0 to 10" cannot happen.
     d <- p$digits %||%
       (if (isTRUE(self$as_count)) 0 else auto_digits(c(lower, upper) * (p$scale %||% 1)))
+    # "auto" opens an end only where values were squished past the limit,
+    # or both ends for mirrored breaks, whose outer edges are symmetric
+    # rather than the data extremes.
+    auto <- if (!is.null(self$full_breaks)) c(TRUE, TRUE)
+            else squished_ends(self$data_values, self$get_limits())
+    open <- resolve_open(p$open, auto)
     labs <- format_intervals(lower, upper, p, as_count = isTRUE(self$as_count),
-                             digits = d)
+                             digits = d, open = open)
     labs[degenerate] <- p$fmt(upper[degenerate], d)
     labs
   }
@@ -187,6 +227,42 @@ ScaleContinuousMap <- ggplot2::ggproto(
       return(data_limits(self))
     }
     ggplot2::ggproto_parent(ggplot2::ScaleContinuous, self)$get_limits()
+  },
+
+  # Open ends on a colourbar. When values were squished past a limit, that
+  # limit must be among the ticks and must read "100% or more" (or "or
+  # less"); a computed tick within 20% of the limit is dropped so the two do
+  # not collide. Only a ggcarto labeller with open = TRUE / "auto" asks for
+  # this; plain labellers keep ggplot2's breaks and labels untouched.
+  label_parts = NULL,   # a label_map() labeller's settings (ggproto wraps functions)
+
+  open_ends = function(self, limits = self$get_limits()) {
+    if (is.null(self$label_parts)) return(c(FALSE, FALSE))
+    resolve_open(self$label_parts$open, squished_ends(self$data_values, limits))
+  },
+
+  get_breaks = function(self, limits = self$get_limits()) {
+    b <- ggplot2::ggproto_parent(ggplot2::ScaleContinuous, self)$get_breaks(limits)
+    open <- self$open_ends(limits)
+    if (!any(open) || !is.waiver(self$breaks)) return(b)
+    b <- b[is.finite(b)]
+    span <- diff(limits)
+    if (open[1]) b <- c(limits[1], b[b > limits[1] + 0.2 * span])
+    if (open[2]) b <- c(b[b < limits[2] - 0.2 * span], limits[2])
+    sort(unique(b))
+  },
+
+  get_labels = function(self, breaks = self$get_breaks()) {
+    labs <- ggplot2::ggproto_parent(ggplot2::ScaleContinuous, self)$get_labels(breaks)
+    open <- self$open_ends()
+    if (!any(open) || is.null(breaks) || !length(labs)) return(labs)
+    limits <- self$get_limits()
+    p <- self$label_parts
+    at_low <- which(is.finite(breaks) & abs(breaks - limits[1]) <= 1e-8 * max(1, abs(limits[1])))
+    at_high <- which(is.finite(breaks) & abs(breaks - limits[2]) <= 1e-8 * max(1, abs(limits[2])))
+    if (open[1] && length(at_low)) labs[at_low] <- paste0(labs[at_low], p$or_less)
+    if (open[2] && length(at_high)) labs[at_high] <- paste0(labs[at_high], p$or_more)
+    labs
   }
 )
 
@@ -198,6 +274,8 @@ ScaleContinuousRank <- ggplot2::ggproto(
   "ScaleContinuousRank", ScaleContinuousMap,
 
   n_ticks = 5L,
+  # Rank limits are not value thresholds; "top 5% or more" means nothing.
+  open_ends = function(self, limits = self$get_limits()) c(FALSE, FALSE),
 
   get_breaks = function(self, limits = self$get_limits()) {
     if (is.waiver(self$breaks) && length(self$data_values)) {

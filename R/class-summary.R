@@ -32,7 +32,9 @@
 #' @param labels A [label_map()] labeller used to write the interval labels.
 #'   `NULL` uses `label_map(style = "interval", open = TRUE)`.
 #' @param ... Extra arguments for the style, passed to [compute_breaks()]
-#'   (`step` for `sd`, `thr` for `headtails`, `large_n`, `seed`, ...).
+#'   (`step` for `sd`, `thr` for `headtails`, `large_n`, `seed`, and
+#'   `midpoint`, `mirror`, `center`, `band` for a diverging variable classed
+#'   symmetrically, where `n` is classes per side).
 #' @return A data frame of class `ggcarto_class_summary` with one row per
 #'   class and columns `class`, `lower`, `upper`, `label`, `n`, `pct`,
 #'   `cum_pct`, `min` and `max`. Attributes carry the whole picture: `style`,
@@ -47,6 +49,10 @@
 #' # counts: integer breaks, "0 to 4" style labels
 #' k <- rpois(200, 3)
 #' class_summary(k, "quantile", 4, as_count = TRUE)
+#'
+#' # a change variable, three classes each side of zero
+#' chg <- c(rnorm(200, 0, 20), 90, 130)
+#' class_summary(chg, "fisher", 3, midpoint = 0, mirror = "value")
 #'
 #' # the table underneath
 #' s <- class_summary(x, "equal", 5)
@@ -91,7 +97,10 @@ class_summary <- function(x, style = "fisher", n = 5, breaks = NULL,
     n_missing = sum(is.na(v)),
     n_nonfinite = sum(is.infinite(v)),
     closure = closure,
-    as_count = isTRUE(as_count)
+    as_count = isTRUE(as_count),
+    mirror = attr(b, "mirror"),
+    midpoint = attr(b, "midpoint"),
+    band = attr(b, "band")
   )
 }
 
@@ -144,7 +153,8 @@ class_table <- function(x, breaks, closure = "right", as_count = FALSE,
     out <- lab_fn(breaks)
     if (length(out) == k + 1L) out[-1L] else rep_len(out, k)
   } else {
-    format_intervals(lower, upper, parts, as_count = as_count)
+    format_intervals(lower, upper, parts, as_count = as_count,
+                     open = if (is_mirrored(breaks)) resolve_open(parts$open, c(TRUE, TRUE)) else NULL)
   }
   mins <- vapply(seq_len(k), function(i) if (counts[i]) min(x[cls == i]) else NA_real_, numeric(1))
   maxs <- vapply(seq_len(k), function(i) if (counts[i]) max(x[cls == i]) else NA_real_, numeric(1))
@@ -176,7 +186,12 @@ print.ggcarto_class_summary <- function(x, ...) {
   if (length(extra)) obs <- paste0(obs, " (", paste(extra, collapse = ", "), ")")
   cat(obs, "\n", sep = "")
   cls <- paste0("Classes: ", a$n_classes)
-  if (a$style %in% c("headtails", "box", "dpih", "unique", "fixed")) {
+  if (!is.null(a$mirror)) {
+    cls <- paste0(cls, " (", a$n_requested, " per side around ", format(a$midpoint),
+                  if (!is.null(a$band)) paste0(", neutral band ", format(signif(a$band[1], 4)),
+                                               " to ", format(signif(a$band[2], 4))) else "",
+                  ", mirrored by ", a$mirror, ")")
+  } else if (a$style %in% c("headtails", "box", "dpih", "unique", "fixed")) {
     cls <- paste0(cls, " (chosen by the method)")
   } else if (a$n_classes != a$n_requested) {
     cls <- paste0(cls, " (requested ", a$n_requested, ")")

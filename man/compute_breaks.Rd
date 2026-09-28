@@ -10,7 +10,11 @@ compute_breaks(
   n = 5,
   args = list(),
   large_n = c("exact", "sample"),
-  seed = 1L
+  seed = 1L,
+  midpoint = NULL,
+  mirror = c("none", "value", "count"),
+  center = c("break", "band"),
+  band = NULL
 )
 }
 \arguments{
@@ -34,9 +38,31 @@ See Details.}
 the subsample \code{"hclust"} and \code{"bclust"} are run on above 5,000 values. The
 session's random-number state is left untouched. \code{NULL} uses the session
 RNG, which makes those styles irreproducible across runs.}
+
+\item{midpoint}{For \code{mirror}, the value the classes are built around: zero
+change, the regional average, 50\%.}
+
+\item{mirror}{Classify a diverging variable symmetrically about
+\code{midpoint}. \code{"none"} (default) ignores the midpoint. \code{"value"} computes
+\code{n} breaks on the distances \verb{|x - midpoint|} and reflects them, so equal
+colour steps mean equal data distances on both sides -- the honest
+default for a diverging map. \code{"count"} classifies each side of the
+midpoint separately into \code{n} classes, so the two sides are balanced in
+count rather than width, the quantile answer. With either, \strong{\code{n} is the
+number of classes per side}, and the break set is returned whole -- an
+outer class one side of the data never reaches is kept, so that the
+palette stays centred and \code{\link[=class_summary]{class_summary()}} can show it empty.}
+
+\item{center}{With \code{mirror}, \code{"break"} puts a break exactly on the
+midpoint; \code{"band"} makes a neutral middle class straddling it instead,
+\verb{[midpoint - w, midpoint + w]}, drawn in the palette's neutral colour.}
+
+\item{band}{For \code{center = "band"}, the band as two values \code{c(lower, upper)}, or one number, the half-width. \code{NULL} uses the innermost
+mirrored break on each side.}
 }
 \value{
-A sorted numeric vector of break points.
+A sorted numeric vector of break points. With \code{mirror} it also
+carries attributes \code{mirror}, \code{midpoint}, \code{per_side} and \code{band}.
 }
 \description{
 The function behind every \verb{breaks_*()} factory. Most users want the
@@ -70,4 +96,10 @@ compute_breaks(c(1, 2, 2, 3, 8, 40), style = "quantile", n = 3)
 # exact and reproducible on a county-sized vector
 x <- rlnorm(3200, 3, 1)
 identical(compute_breaks(x, "fisher", 5), compute_breaks(x, "fisher", 5))
+
+# a change variable, three classes each side of zero
+chg <- c(rnorm(200, 0, 20), 90, 130, -60)
+compute_breaks(chg, "fisher", n = 3, midpoint = 0, mirror = "value")
+compute_breaks(chg, "quantile", n = 3, midpoint = 0, mirror = "count",
+               center = "band", band = 5)
 }

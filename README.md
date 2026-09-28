@@ -214,11 +214,26 @@ ggcarto_palettes(seq = "hcl::Batlow", div = "brewer::BrBG", cat = "brewer::Dark2
 last_plot() + theme_palettes()
 ```
 
+## Diverging variables, honestly
+
+```r
+# three classes each side of zero, palette centred on zero, legend open-ended
+scale_fill_intervals("brewer::BrBG", style = "pretty", n = 3,
+                     midpoint = 0, mirror = "value",
+                     labels = label_map(suffix = "%"))
+```
+
+`mirror` builds the classes symmetrically about the midpoint and keeps the
+whole set, so the neutral colour sits on zero even when losers stop at -40%
+and gainers run to +200%. A colourbar whose limits squish data labels its
+ends "100% or more" without being asked (`label_map(open = "auto")`).
+
 ## Look
 
 `theme_ggcarto()` is a complete map theme -- warm paper, navy title, grey
-annotation, legend under the map -- and the package's diagnostic charts are
-drawn in the same style. Bivariate maps get 17 corner presets plus the
+annotation, legend where the reader starts, with dark and print variants --
+and `guide_map()` sizes the legend for it. The package's diagnostic charts
+are drawn in the same style. Bivariate maps get 17 corner presets plus the
 Stevens 3 x 3 grids (`plot_bivariate_palettes()` shows them all).
 
 ## Vignette and tutorial
@@ -233,7 +248,7 @@ behind each step and its references.
 
 ## Status
 
-v0.3.0. The API is settled enough to use and not yet settled enough to promise.
+v0.4.0. The API is settled enough to use and not yet settled enough to promise.
 Not yet implemented: `size`/`linewidth` visual variables, an NA key on
 continuous colourbars, a native `guide_bivariate()` (the inset legend stays
 the recommended route), and a `guide_map()` with tmap-style legend layout

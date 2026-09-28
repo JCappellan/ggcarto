@@ -1,6 +1,6 @@
 Package: ggcarto
 Title: Cartographic Class Intervals, Palettes and Bivariate Scales for 'ggplot2'
-Version: 0.3.0
+Version: 0.4.0
 Authors@R:
     person("Joel", "Capellan", email = "joelcapellan@gmail.com",
            role = c("aut", "cre"))

@@ -228,23 +228,64 @@ print.ggcarto_breaks <- function(x, ...) {
 #' `"hclust"` and `"bclust"` need a full distance matrix, which is quadratic
 #' in memory, so above 5,000 values they are run on a seeded sample of 5,000
 #' plus the extremes. `"kmeans"` runs on all values with the seed set.
-#' @return A sorted numeric vector of break points.
+#' @param midpoint For `mirror`, the value the classes are built around: zero
+#'   change, the regional average, 50%.
+#' @param mirror Classify a diverging variable symmetrically about
+#'   `midpoint`. `"none"` (default) ignores the midpoint. `"value"` computes
+#'   `n` breaks on the distances `|x - midpoint|` and reflects them, so equal
+#'   colour steps mean equal data distances on both sides -- the honest
+#'   default for a diverging map. `"count"` classifies each side of the
+#'   midpoint separately into `n` classes, so the two sides are balanced in
+#'   count rather than width, the quantile answer. With either, **`n` is the
+#'   number of classes per side**, and the break set is returned whole -- an
+#'   outer class one side of the data never reaches is kept, so that the
+#'   palette stays centred and [class_summary()] can show it empty.
+#' @param center With `mirror`, `"break"` puts a break exactly on the
+#'   midpoint; `"band"` makes a neutral middle class straddling it instead,
+#'   `[midpoint - w, midpoint + w]`, drawn in the palette's neutral colour.
+#' @param band For `center = "band"`, the band as two values `c(lower,
+#'   upper)`, or one number, the half-width. `NULL` uses the innermost
+#'   mirrored break on each side.
+#'
+#' @return A sorted numeric vector of break points. With `mirror` it also
+#'   carries attributes `mirror`, `midpoint`, `per_side` and `band`.
 #' @examples
 #' compute_breaks(c(1, 2, 2, 3, 8, 40), style = "quantile", n = 3)
 #'
 #' # exact and reproducible on a county-sized vector
 #' x <- rlnorm(3200, 3, 1)
 #' identical(compute_breaks(x, "fisher", 5), compute_breaks(x, "fisher", 5))
+#'
+#' # a change variable, three classes each side of zero
+#' chg <- c(rnorm(200, 0, 20), 90, 130, -60)
+#' compute_breaks(chg, "fisher", n = 3, midpoint = 0, mirror = "value")
+#' compute_breaks(chg, "quantile", n = 3, midpoint = 0, mirror = "count",
+#'                center = "band", band = 5)
 #' @export
 compute_breaks <- function(x, style = "pretty", n = 5, args = list(),
-                           large_n = c("exact", "sample"), seed = 1L) {
+                           large_n = c("exact", "sample"), seed = 1L,
+                           midpoint = NULL, mirror = c("none", "value", "count"),
+                           center = c("break", "band"), band = NULL) {
   style <- match.arg(style, map_styles())
+  mirror <- match.arg(mirror)
+  center <- match.arg(center)
   # Factories forward everything through `args`; let large_n and seed ride
   # along there too, so breaks_fisher(5, large_n = "sample") just works.
   if (!is.null(args$large_n)) { large_n <- args$large_n; args$large_n <- NULL }
   if ("seed" %in% names(args)) { seed <- args$seed; args$seed <- NULL }
+  for (a in c("midpoint", "mirror", "center", "band")) {
+    if (a %in% names(args)) { assign(a, args[[a]]); args[[a]] <- NULL }
+  }
   large_n <- match.arg(large_n)
   x <- finite_num(x)
+
+  if (mirror != "none") {
+    if (is.null(midpoint) || !is.finite(midpoint)) {
+      abort_ggcarto("`mirror` needs a `midpoint` to mirror around.")
+    }
+    return(mirror_breaks(x, style, n, args, large_n, seed, midpoint, mirror,
+                         center, band))
+  }
 
   if (!length(x)) return(numeric(0))
   rng <- range(x)
@@ -299,6 +340,76 @@ sample_with_range <- function(x, size) {
   if (length(x) <= size + 2L) return(x)
   c(range(x), sample(x, size))
 }
+
+# ---------------------------------------------------------------------------
+# Mirrored breaks for diverging variables
+#
+# A diverging variable has one break that is not negotiable: the midpoint. No
+# classification method knows that, so gainers and losers end up sharing a
+# class. Here the classes are built on each side of the midpoint and joined,
+# and the whole symmetric set is kept even where one side's data stop short,
+# so the palette's neutral colour stays on the midpoint.
+# ---------------------------------------------------------------------------
+mirror_breaks <- function(x, style, n, args, large_n, seed, midpoint, mirror,
+                          center, band) {
+  n <- max(as.integer(n), 1L)
+  if (!length(x)) return(numeric(0))
+  sub_breaks <- function(v, k) {
+    if (length(v) < 2L || k < 1L) return(range(v))
+    compute_breaks(v, style = style, n = k, args = args, large_n = large_n, seed = seed)
+  }
+  band_lims <- if (!is.null(band)) {
+    band <- as.numeric(band)
+    if (length(band) == 1L) midpoint + c(-1, 1) * abs(band) else sort(band[1:2])
+  } else NULL
+  if (center == "break") band_lims <- NULL
+
+  if (mirror == "value") {
+    d <- abs(x - midpoint)
+    if (is.null(band_lims) && center == "band") {
+      b <- sub_breaks(d, n)
+      offsets <- b[-1]
+      band_lims <- midpoint + c(-1, 1) * offsets[1]
+    } else if (!is.null(band_lims)) {
+      w <- max(abs(band_lims - midpoint))
+      band_lims <- midpoint + c(-1, 1) * w
+      outer <- d[d > w]
+      b <- if (length(outer) >= 2L && n > 1L) sub_breaks(outer, n - 1L) else c(w, max(d, w))
+      offsets <- unique(c(w, b[-1][b[-1] > w]))
+    } else {
+      b <- sub_breaks(d, n)
+      offsets <- b[-1]
+    }
+    offsets <- offsets[offsets > 0]
+    brks <- c(midpoint - rev(offsets), if (is.null(band_lims)) midpoint, midpoint + offsets)
+  } else {
+    lower <- x[x < midpoint]; upper <- x[x >= midpoint]
+    if (is.null(band_lims) && center == "band") {
+      bl <- sub_breaks(lower, n); bu <- sub_breaks(upper, n)
+      lo_b <- bl[-length(bl)]; hi_b <- bu[-1]
+      band_lims <- c(lo_b[length(lo_b)], hi_b[1])
+      brks <- c(lo_b, hi_b)
+    } else if (!is.null(band_lims)) {
+      lower <- x[x < band_lims[1]]; upper <- x[x > band_lims[2]]
+      # each side's innermost edge is the band edge, not its own extreme
+      bl <- if (n > 1L && length(lower) >= 2L) sub_breaks(lower, n - 1L) else numeric(0)
+      bu <- if (n > 1L && length(upper) >= 2L) sub_breaks(upper, n - 1L) else numeric(0)
+      brks <- c(bl[-length(bl)], band_lims, bu[-1])
+    } else {
+      bl <- sub_breaks(lower, n); bu <- sub_breaks(upper, n)
+      brks <- c(bl[-length(bl)], midpoint, bu[-1])
+    }
+  }
+  brks <- sort(unique(as.numeric(brks[is.finite(brks)])))
+  # cover the data, as elsewhere, without disturbing the symmetric interior
+  rng <- range(x)
+  if (brks[1] > rng[1]) brks <- c(rng[1], brks)
+  if (brks[length(brks)] < rng[2]) brks <- c(brks, rng[2])
+  structure(brks, mirror = mirror, midpoint = midpoint, per_side = n,
+            band = band_lims)
+}
+
+is_mirrored <- function(b) !is.null(attr(b, "mirror"))
 
 classint_breaks <- function(x, style, n, args = list(), large_n = "exact",
                             seed = 1L) {

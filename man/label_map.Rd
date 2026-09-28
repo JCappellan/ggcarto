@@ -15,7 +15,8 @@ label_map(
   separator = " to ",
   less_than = "Under ",
   or_more = " and above",
-  open = FALSE,
+  or_less = " or less",
+  open = "auto",
   right = TRUE,
   na_label = "Missing"
 )
@@ -38,11 +39,18 @@ class between break points.}
 
 \item{separator}{Text between the two ends of an interval.}
 
-\item{less_than, or_more}{Text used for an open first and last class when
-\code{open = TRUE}.}
+\item{less_than, or_more, or_less}{Wording for open ends. Interval labels
+use \code{less_than} and \code{or_more}: "Under 10", "50 and above". Value labels
+(a colourbar's ticks) use \code{or_less} and \code{or_more} on the limit ticks:
+"-100\% or less", "100\% or more".}
 
-\item{open}{If \code{TRUE}, the first and last classes read "Under x" and
-"x and above" instead of showing the data extremes.}
+\item{open}{Whether the ends are open. \code{"auto"} (default) opens an end
+only when the scale has squished values beyond that limit, so the legend
+says "100\% or more" exactly when there are values above 100\%, and shows
+the data extremes otherwise. \code{TRUE} opens both ends regardless; \code{FALSE}
+never does. Outside a ggcarto scale, where nothing is known about the
+data, \code{"auto"} behaves as \code{FALSE}. With mirrored breaks (see
+\code{\link[=compute_breaks]{compute_breaks()}}) \code{"auto"} opens both ends.}
 
 \item{right}{Kept for compatibility and not used: which side of a break
 is closed is decided where the classes are made, by the \code{closure}
@@ -62,5 +70,6 @@ ggplot2 scale. With \code{style = "interval"} it turns \emph{n + 1} break points
 \examples{
 label_map(prefix = "$", big.mark = ",")(c(1000, 25000, 1e6))
 label_map(style = "interval")(c(0, 10, 20, 50))
-label_map(style = "interval", open = TRUE)(c(0, 10, 20, 50))
+label_map(style = "interval", open = FALSE)(c(0, 10, 20, 50))
+label_map(suffix = "\%")(c(-100, 0, 100))   # in a scale, "100\% or more" when squished
 }

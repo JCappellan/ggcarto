@@ -192,16 +192,33 @@ diagnose_intervals <- function(scale, meta, x, background) {
   )
   n_censored <- if (oob == "censor") n_out else 0L
   b_all <- scale$map_breaks_fn(vv)
-  eff <- sort(unique(c(lims[1], b_all[b_all > lims[1] & b_all < lims[2]], lims[2])))
+  mirrored <- is_mirrored(b_all)
+  eff <- if (mirrored) as.numeric(b_all)
+         else sort(unique(c(lims[1], b_all[b_all > lims[1] & b_all < lims[2]], lims[2])))
   tab <- class_table(vv, eff, closure = meta$closure, as_count = meta$as_count)
   k <- nrow(tab)
+  # Mirrored sets: the outer classes one side never reaches are expected;
+  # report them as such rather than as empty classes.
+  never_drawn <- rep(FALSE, k)
+  if (mirrored && k > 2L) {
+    never_drawn <- (cumsum(tab$n) == 0) | rev(cumsum(rev(tab$n)) == 0)
+  }
 
   # Legend labels as the scale itself would write them.
   labels <- tryCatch({
     sc <- trained_clone(scale, fin)
     sc$get_labels()
   }, error = function(e) tab$label)
-  if (length(labels) != k) labels <- tab$label
+  if (length(labels) != k) {
+    labels <- if (mirrored && length(labels) == sum(!never_drawn)) {
+      out <- tab$label; out[!never_drawn] <- labels; out[never_drawn] <- "(not drawn)"; out
+    } else tab$label
+  }
+  open_ends <- squished_ends(fin, lims)
+  legend_says_so <- !is.null(scale$label_parts) && any(open_ends) &&
+    all(resolve_open(scale$label_parts$open, open_ends)[open_ends]) &&
+    (isTRUE(scale$interval_labels) || any(grepl(scale$label_parts$or_more, labels, fixed = TRUE)) ||
+       any(grepl(scale$label_parts$or_less, labels, fixed = TRUE)))
 
   cols <- if (meta$interpolate == "even") meta$pal_fn(k) else {
     mids <- (tab$lower + tab$upper) / 2
@@ -213,11 +230,25 @@ diagnose_intervals <- function(scale, meta, x, background) {
   ptype <- ptype %||% pc$type_inferred
 
   w <- character(0)
-  if (any(tab$n == 0)) {
+  if (mirrored) {
+    w <- c(w, sprintf("classes are mirrored around %s (%d per side, by %s%s); the palette is sampled over all %d so its neutral colour sits on the midpoint",
+                      format(attr(b_all, "midpoint")), attr(b_all, "per_side"), attr(b_all, "mirror"),
+                      if (!is.null(attr(b_all, "band"))) sprintf(", neutral band %s to %s",
+                        format(signif(attr(b_all, "band")[1], 4)), format(signif(attr(b_all, "band")[2], 4))) else "", k))
+    if (any(never_drawn)) {
+      w <- c(w, sprintf("%d class%s on the %s side %s never drawn: no area reaches that far, so the %s end of the palette does not appear on the map",
+                        sum(never_drawn), if (sum(never_drawn) > 1) "es" else "",
+                        if (never_drawn[1]) "low" else "high",
+                        if (sum(never_drawn) > 1) "are" else "is",
+                        if (never_drawn[1]) "low" else "high"))
+    }
+  }
+  empty <- tab$n == 0 & !never_drawn
+  if (any(empty)) {
     w <- c(w, sprintf("%d class%s contain%s no observations: %s a legend key with no area on the map",
-                      sum(tab$n == 0), if (sum(tab$n == 0) > 1) "es" else "",
-                      if (sum(tab$n == 0) > 1) "" else "s",
-                      if (sum(tab$n == 0) > 1) "each is" else "that is"))
+                      sum(empty), if (sum(empty) > 1) "es" else "",
+                      if (sum(empty) > 1) "" else "s",
+                      if (sum(empty) > 1) "each is" else "that is"))
   }
   tiny <- tab$n > 0 & tab$n < th$tiny_n
   if (any(tiny)) {
@@ -235,9 +266,15 @@ diagnose_intervals <- function(scale, meta, x, background) {
   }
   if (n_out && oob %in% c("squish", "infinite")) {
     pct <- 100 * n_out / length(fin)
-    msg <- sprintf("%s of %s values (%.1f%%) lie outside the limits and are squished into the end classes; the map cannot show how extreme they are",
-                   fmt_n(n_out), fmt_n(length(fin)), pct)
-    if (pct > 5) msg <- paste0(msg, " -- at this share, say so in the legend (label_map(open = TRUE))")
+    msg <- if (legend_says_so) {
+      sprintf("%s of %s values (%.1f%%) lie outside the limits and are drawn in the end classes; the legend says so (\"%s\")",
+              fmt_n(n_out), fmt_n(length(fin)), pct,
+              if (open_ends[2]) labels[k] else labels[1])
+    } else {
+      sprintf("%s of %s values (%.1f%%) lie outside the limits and are squished into the end classes; the map cannot show how extreme they are%s",
+              fmt_n(n_out), fmt_n(length(fin)), pct,
+              if (pct > 5) " -- at this share, say so in the legend (label_map(open = TRUE))" else "")
+    }
     w <- c(w, msg)
   }
   if (n_censored) {
@@ -260,10 +297,19 @@ diagnose_intervals <- function(scale, meta, x, background) {
     w <- c(w, sprintf("%s missing values (%.1f%%) are drawn in %s; make sure the legend has a key for them (na_key())",
                       fmt_n(n_missing), 100 * n_missing / length(v), meta$na.value))
   }
-  w <- c(w, pc$issues)
+  issues <- pc$issues
+  # A break sitting on the midpoint makes the even-class warning moot.
+  if (!is.null(meta$midpoint) && any(abs(eff - meta$midpoint) < 1e-9 * max(1, abs(meta$midpoint)))) {
+    issues <- issues[!grepl("even number of classes", issues)]
+  }
+  w <- c(w, issues)
 
   structure(list(
     type = "intervals", style = if (is.null(meta$breaks)) meta$style else "fixed",
+    mirror = if (mirrored) attr(b_all, "mirror") else NULL,
+    per_side = if (mirrored) attr(b_all, "per_side") else NULL,
+    band = if (mirrored) attr(b_all, "band") else NULL,
+    never_drawn = never_drawn,
     n_requested = if (is.null(meta$breaks)) as.integer(meta$n) else k,
     n_classes = k, breaks = eff, classes = tab, labels = labels,
     palette = palette_name(meta), palette_type = ptype, colours = cols,
@@ -297,9 +343,11 @@ diagnose_continuous <- function(scale, meta, x, background) {
   pc <- check_palette(cols, 7L, type = ptype, background = background,
                       na.value = meta$na.value)
   ptype <- ptype %||% pc$type_inferred
+  tick_labels <- character(0)
   ticks <- tryCatch({
     sc <- trained_clone(scale, fin)
     b <- sc$get_breaks()
+    tick_labels <- sc$get_labels(b)
     tr <- scale_transformation(sc)
     if (!is.null(tr) && !identical(tr$name, "identity")) b <- tr$inverse(b)
     b[is.finite(b)]
@@ -308,8 +356,16 @@ diagnose_continuous <- function(scale, meta, x, background) {
   w <- character(0)
   if (meta$type == "continuous" && n_out && oob %in% c("squish", "infinite")) {
     pct <- 100 * n_out / length(fin)
-    w <- c(w, sprintf("%s values (%.1f%%) lie outside the limits and are squished to the ends of the ramp",
-                      fmt_n(n_out), pct))
+    open_ends <- squished_ends(fin, lims)
+    says_so <- !is.null(scale$label_parts) && length(tick_labels) > 1L &&
+      all(resolve_open(scale$label_parts$open, open_ends)[open_ends])
+    w <- c(w, if (says_so) {
+      sprintf("%s values (%.1f%%) lie outside the limits and are drawn in the end colours; the limit ticks say so (\"%s\")",
+              fmt_n(n_out), pct, paste(tick_labels[c(1, length(tick_labels))][open_ends], collapse = "\", \""))
+    } else {
+      sprintf("%s values (%.1f%%) lie outside the limits and are squished to the ends of the ramp; the colourbar does not say so",
+              fmt_n(n_out), pct)
+    })
   }
   if (meta$type == "continuous" && n_out && oob == "censor") {
     w <- c(w, sprintf("%s values outside the limits are censored and will look like missing data", fmt_n(n_out)))
@@ -346,7 +402,7 @@ diagnose_continuous <- function(scale, meta, x, background) {
 
   structure(list(
     type = meta$type, style = NULL, n_requested = NA_integer_, n_classes = NA_integer_,
-    breaks = ticks, classes = NULL, labels = NULL,
+    breaks = ticks, classes = NULL, labels = tick_labels,
     palette = palette_name(meta), palette_type = ptype, colours = cols,
     range = range(fin), limits = lims, midpoint = meta$midpoint, oob = oob,
     n_squished = c(below = below, above = above),
@@ -413,7 +469,10 @@ print.ggcarto_diagnosis <- function(x, ...) {
   cat("Mapping: ", x$type, "\n", sep = "")
   if (x$type == "intervals") {
     cat("Classification: ", style_label(x$style),
-        if (x$style != "fixed") sprintf(", %d requested, %d drawn", x$n_requested, x$n_classes)
+        if (!is.null(x$mirror)) sprintf(", mirrored by %s around %s: %d per side, %d in all%s",
+                                        x$mirror, format(x$midpoint), x$per_side, x$n_classes,
+                                        if (any(x$never_drawn)) sprintf(" (%d not drawn)", sum(x$never_drawn)) else "")
+        else if (x$style != "fixed") sprintf(", %d requested, %d drawn", x$n_requested, x$n_classes)
         else sprintf(", %d classes", x$n_classes), "\n", sep = "")
     cat("Breaks: ", paste(signif(x$breaks, 4), collapse = ", "), "\n", sep = "")
     cat("Closure: ", if (x$closure == "right") "(a, b]" else "[a, b)",
@@ -453,6 +512,7 @@ print.ggcarto_diagnosis <- function(x, ...) {
     cat(paste("  ", lab, " ", n, " ", pct, "  ", col), sep = "\n")
   } else if (!is.null(x$breaks)) {
     cat("Legend ticks: ", paste(signif(x$breaks, 4), collapse = ", "), "\n", sep = "")
+    if (length(x$labels)) cat("Tick labels: ", paste(x$labels, collapse = " | "), "\n", sep = "")
   }
   if (length(x$warnings)) {
     cat("\nThings to check:\n")

@@ -24,7 +24,10 @@
 #'   (`headtails`, `box`, `dpih`, `unique`) and `fixed` ignore it and report
 #'   the count they produce.
 #' @param ... Extra arguments for the style, passed to [compute_breaks()];
-#'   `breaks = ` for `style = "fixed"`.
+#'   `breaks = ` for `style = "fixed"`; `midpoint`, `mirror`, `center` and
+#'   `band` for a diverging variable classed symmetrically, in which case
+#'   every candidate `n` is classes *per side* and the readability rating
+#'   applies to the total.
 #'
 #' @details
 #' **Metrics.** For each candidate `n` the data are classed with
@@ -129,9 +132,12 @@ class_guide <- function(x, style = "fisher", n = 3:9,
   tab <- do.call(rbind, lapply(rows, `[[`, "row"))
   tab$gain <- c(NA_real_, diff(tab$fit))
   tab$readability <- readability_rating(tab$actual_classes)
-  tab <- tab[, c("n", "actual_classes", "fit", "gain", "smallest_class_n",
-                 "smallest_class_pct", "largest_class_pct", "empty_classes",
-                 "min_spacing", "spacing_pct", "readability", "warnings")]
+  mirrored <- !is.null(args$mirror) && !identical(args$mirror, "none")
+  tab <- tab[, c("n", "actual_classes", "expected_classes", "fit", "gain",
+                 "smallest_class_n", "smallest_class_pct", "largest_class_pct",
+                 "empty_classes", "min_spacing", "spacing_pct", "readability",
+                 "warnings")]
+  if (!mirrored) tab$expected_classes <- NULL
   rownames(tab) <- NULL
 
   rec <- switch(family,
@@ -143,6 +149,11 @@ class_guide <- function(x, style = "fisher", n = 3:9,
     fixed    = recommend_fixed(tab, dist),
     unique   = recommend_unique(tab, dist)
   )
+
+  if (mirrored && !is.na(rec$suggested)) {
+    rec$reasons <- c(rec$reasons,
+      "n counts classes per side of the midpoint; the readability rating and the class counts above are for the whole mirrored set")
+  }
 
   structure(list(
     style = style,
@@ -157,6 +168,7 @@ class_guide <- function(x, style = "fisher", n = 3:9,
     counts = stats::setNames(lapply(rows, `[[`, "counts"), tab$n),
     closure = closure,
     as_count = isTRUE(as_count),
+    mirrored = mirrored,
     thresholds = guide_thresholds()
   ), class = "ggcarto_class_guide")
 }
@@ -200,7 +212,7 @@ readability_rating <- function(k) {
 guide_row <- function(v, style, n, args, closure, as_count) {
   th <- guide_thresholds()
   na_row <- data.frame(
-    n = n, actual_classes = NA_integer_, fit = NA_real_,
+    n = n, actual_classes = NA_integer_, expected_classes = NA_integer_, fit = NA_real_,
     smallest_class_n = NA_integer_, smallest_class_pct = NA_real_,
     largest_class_pct = NA_real_, empty_classes = NA_integer_,
     min_spacing = NA_real_, spacing_pct = NA_real_,
@@ -218,22 +230,35 @@ guide_row <- function(v, style, n, args, closure, as_count) {
   cls <- assign_classes(v, b, closure)
   counts <- tabulate(cls, nbins = k)
   pct <- 100 * counts / length(v)
+  # Mirrored sets keep the outer classes one side never reaches, on purpose,
+  # so the balance rules look at the classes the data actually span.
+  judge <- rep(TRUE, k)
+  w <- character(0)
+  if (is_mirrored(b) && k > 2L) {
+    lead <- cumsum(counts) == 0
+    trail <- rev(cumsum(rev(counts)) == 0)
+    judge <- !(lead | trail)
+    if (any(lead)) w <- c(w, sprintf("%d outer class%s on the low side never drawn (the data do not reach that far)",
+                                     sum(lead), if (sum(lead) > 1) "es" else ""))
+    if (any(trail)) w <- c(w, sprintf("%d outer class%s on the high side never drawn", sum(trail), if (sum(trail) > 1) "es" else ""))
+  }
+  counts_j <- counts[judge]; pct_j <- pct[judge]
   rng <- diff(range(v))
   spacing <- min(diff(b))
 
-  w <- character(0)
-  if (k != n && !style %in% c("headtails", "box", "dpih", "unique", "fixed")) {
+  expected <- if (is_mirrored(b)) 2L * n - (if (is.null(attr(b, "band"))) 0L else 1L) else n
+  if (k != expected && !style %in% c("headtails", "box", "dpih", "unique", "fixed")) {
     w <- c(w, sprintf("only %d distinct classes could be formed", k))
   }
-  if (any(counts == 0)) {
-    w <- c(w, sprintf("%d empty class%s", sum(counts == 0), if (sum(counts == 0) > 1) "es" else ""))
+  if (any(counts_j == 0)) {
+    w <- c(w, sprintf("%d empty class%s", sum(counts_j == 0), if (sum(counts_j == 0) > 1) "es" else ""))
   }
-  tiny <- counts > 0 & counts < th$tiny_n
+  tiny <- counts_j > 0 & counts_j < th$tiny_n
   if (any(tiny)) {
     w <- c(w, sprintf("%d class%s with fewer than %d observations",
                       sum(tiny), if (sum(tiny) > 1) "es" else "", th$tiny_n))
   }
-  thin <- counts >= th$tiny_n & pct < th$thin_pct
+  thin <- counts_j >= th$tiny_n & pct_j < th$thin_pct
   if (any(thin)) {
     w <- c(w, sprintf("%d thin class%s (under %g%% of observations)",
                       sum(thin), if (sum(thin) > 1) "es" else "", th$thin_pct))
@@ -247,9 +272,9 @@ guide_row <- function(v, style, n, args, closure, as_count) {
   }
 
   row <- data.frame(
-    n = n, actual_classes = k, fit = goodness_of_fit(v, cls),
-    smallest_class_n = min(counts), smallest_class_pct = min(pct),
-    largest_class_pct = max(pct), empty_classes = sum(counts == 0),
+    n = n, actual_classes = k, expected_classes = expected, fit = goodness_of_fit(v, cls),
+    smallest_class_n = min(counts_j), smallest_class_pct = min(pct_j),
+    largest_class_pct = max(pct_j), empty_classes = sum(counts_j == 0),
     min_spacing = spacing,
     spacing_pct = if (rng > 0) 100 * spacing / rng else NA_real_,
     warnings = paste(w, collapse = "; "), stringsAsFactors = FALSE
@@ -306,7 +331,8 @@ readability_phrase <- function(k) {
 
 eligible_rows <- function(tab, th, need_exact = TRUE) {
   ok <- !is.na(tab$fit) & tab$empty_classes == 0 & tab$smallest_class_n >= th$tiny_n
-  if (need_exact) ok <- ok & tab$actual_classes == tab$n
+  expected <- tab$expected_classes %||% tab$n
+  if (need_exact) ok <- ok & tab$actual_classes == expected
   ok
 }
 
@@ -562,6 +588,9 @@ print.ggcarto_class_guide <- function(x, ...) {
       "\n\n", sep = "")
   if (is.na(x$suggested)) {
     cat("Suggested: no number of classes", if (x$family == "fixed") " (fixed breaks)" else "", "\n\n", sep = "")
+  } else if (isTRUE(x$mirrored)) {
+    tot <- x$table$actual_classes[x$table$n == x$suggested]
+    cat("Suggested: ", x$suggested, " classes per side (", tot, " in all, mirrored)\n\n", sep = "")
   } else {
     cat("Suggested: ", x$suggested, " classes\n\n", sep = "")
   }

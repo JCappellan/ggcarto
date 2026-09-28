@@ -1,6 +1,8 @@
 # Picking this up on your machine
 
-Version 0.3.0: diagnostics (`class_summary()`, `plot_breaks()`,
+Version 0.4.0 (on top of 0.3.0's diagnostics): mirrored classes for diverging
+variables, open-ended legend labels, `theme_ggcarto()` + `guide_map()`, more
+bivariate palettes, the good-maps article. 0.3.0 added diagnostics (`class_summary()`, `plot_breaks()`,
 `compare_breaks()`, `class_guide()`, `diagnose_map()`, `check_palette()`),
 interval closure and count handling, bivariate transforms, deterministic
 large-N classification, the `northeast_counties` dataset and a rebuilt
@@ -38,6 +40,15 @@ that is expected.
    layer data, falling back on the scale's retained values.
 3. Palette-check thresholds (`palette_thresholds()` in `R/palette-check.R`):
    CIE76 dE 10 / 5, WCAG contrast 1.2. Conservative on purpose.
+
+## Not carried over from the 0.4 roadmap
+
+* Value-driven transparency (`alpha_ramp()` and friends, roadmap section 1)
+  was dropped on request: transparency is a layer property, and a faded
+  legend key misreports the map. `R/alpha.R`, `R/theme-carto.R` and
+  `man/alpha_rules.Rd` from the 20 September session are superseded and
+  should be deleted from the folder if they are still there.
+* Mirrored breaks are not rounded (`pretty = TRUE`); use `style = "pretty"`.
 
 ## Known gaps, roughly in order of value
 

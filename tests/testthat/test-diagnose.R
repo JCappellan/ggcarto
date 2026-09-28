@@ -26,13 +26,14 @@ test_that("diagnose_map reports what the interval scale draws", {
   expect_equal(d$na_colour, "grey85")
   expect_length(d$colours, 6L)
   expect_length(d$labels, 6L)
-  expect_match(d$labels[1], " to ")   # labels = "ranges" is not open-ended
+  expect_match(d$labels[1], "^Under")   # squished below the limit: the legend says so
   # the class table agrees with the colours actually drawn
   fills <- ggplot2::ggplot_build(p)$data[[1]]$fill
   drawn <- table(factor(fills, levels = d$colours))
   expect_equal(as.integer(drawn), d$classes$n)
   expect_equal(sum(d$classes$n), 298L)
-  expect_true(any(grepl("squished", d$warnings)))
+  expect_true(any(grepl("outside the limits", d$warnings)))
+  expect_true(any(grepl("legend says so", d$warnings)))
   expect_true(any(grepl("missing", d$warnings)))
   expect_output(print(d), "ggcarto map diagnosis")
 })
@@ -64,7 +65,12 @@ test_that("warnings name the cartographic consequence", {
   ds <- diagnose_scale(scale_fill_intervals("viridis::mako", "quantile", 5,
                                             limits = c(10, 50)), z)
   expect_gt(sum(ds$n_squished), 0.05 * 298)
-  expect_true(any(grepl("say so in the legend", ds$warnings)))
+  expect_true(any(grepl("legend says so|say so in the legend", ds$warnings)))
+  # with open = FALSE the legend stays silent and the diagnosis says so
+  dq <- diagnose_scale(scale_fill_intervals("viridis::mako", "quantile", 5,
+                                            limits = c(10, 50),
+                                            labels = label_map(open = FALSE)), z)
+  expect_true(any(grepl("say so in the legend", dq$warnings)))
   # censoring
   dc <- diagnose_scale(scale_fill_intervals("viridis::mako", "quantile", 5,
                                             limits = c(10, 50), oob = "censor"), z)

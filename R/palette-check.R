@@ -91,7 +91,9 @@ check_palette <- function(palette, n = 5, type = NULL, background = "white",
   if (identical(type_used, "div") && n >= 3) {
     mid <- (n + 1) / 2
     mid_i <- if (n %% 2 == 1) mid else c(floor(mid), ceiling(mid))
-    if (max(chroma[mid_i]) > th$neutral_chroma) {
+    # with an even count the two middle classes are the first steps away
+    # from neutral, so they are allowed a little colour
+    if (max(chroma[mid_i]) > th$neutral_chroma * (if (n %% 2 == 1) 1 else 1.7)) {
       issues <- c(issues, sprintf("the centre colour is not neutral (chroma %.0f): readers may not read the middle class as 'around the midpoint'",
                                   max(chroma[mid_i])))
     }

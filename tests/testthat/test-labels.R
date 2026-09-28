@@ -48,3 +48,13 @@ test_that("string shorthands resolve", {
 test_that("printing is informative", {
   expect_output(print(label_map(style = "interval")), "interval")
 })
+
+test_that("open has three states and or_less wording", {
+  f <- label_map(style = "interval", digits = 0)
+  expect_equal(f(c(0, 10, 20)), c("0 to 10", "10 to 20"))          # "auto" is closed outside a scale
+  expect_equal(label_map(style = "interval", open = TRUE, digits = 0)(c(0, 10, 20)),
+               c("Under 10", "10 and above"))
+  p <- attr(label_map(or_less = " or under", open = TRUE), "parts")
+  expect_equal(p$or_less, " or under"); expect_true(isTRUE(p$open))
+  expect_error(label_map(open = "sometimes"), "open")
+})

@@ -27,6 +27,14 @@
 #'   (such as [breaks_jenks()]), or `NULL` to use `style` and `n`.
 #' @param midpoint Value anchored to the centre of a diverging palette. Use
 #'   `midpoint = 0` with a diverging palette; `NULL` for sequential palettes.
+#'   For `type = "intervals"` it also puts a class break exactly on the
+#'   midpoint, and with `mirror` it is what the classes are built around.
+#' @param mirror,center,band For `type = "intervals"` with a `midpoint`:
+#'   classify each side of the midpoint symmetrically, with `n` classes *per
+#'   side*; see [compute_breaks()]. The palette is sampled symmetrically over
+#'   the whole mirrored set, so its neutral colour sits on the midpoint (or
+#'   on the neutral `band`) even when one side's data stop short, and the
+#'   classes one side never reaches are simply not drawn.
 #' @param limits Length-2 numeric, a function of the data (see
 #'   [trim_limits()], [symmetric_limits()]), or `NULL` for the data range.
 #' @param oob What to do with values outside `limits`: `"squish"` (default,
@@ -109,6 +117,9 @@ scale_map <- function(palette = NULL,
                       interpolate = c("even", "value"),
                       closure = c("right", "left"),
                       as_count = FALSE,
+                      mirror = c("none", "value", "count"),
+                      center = c("break", "band"),
+                      band = NULL,
                       drop = FALSE,
                       transform = "identity",
                       guide = NULL,
@@ -118,6 +129,11 @@ scale_map <- function(palette = NULL,
   type <- match.arg(type)
   interpolate <- match.arg(interpolate)
   closure <- match.arg(closure)
+  mirror <- match.arg(mirror)
+  center <- match.arg(center)
+  if (mirror != "none" && is.null(midpoint)) {
+    abort_ggcarto("`mirror` needs a `midpoint`.")
+  }
   if (isTRUE(as_count)) {
     closure <- "left"
     if (is.null(labels)) labels <- "ranges"
@@ -138,7 +154,8 @@ scale_map <- function(palette = NULL,
     intervals   = map_scale_binned(pal_fn, style, n, breaks, midpoint, limits,
                                    oob, na.value, na.label, na.show, labels,
                                    interpolate, transform, guide, name,
-                                   aesthetics, closure, as_count, ...),
+                                   aesthetics, closure, as_count,
+                                   mirror, center, band, ...),
     map_scale_discrete(pal_fn, type, breaks, limits, na.value, na.label,
                        na.show, labels, drop, guide, name, aesthetics, ...)
   )
@@ -151,7 +168,8 @@ scale_map <- function(palette = NULL,
     midpoint = midpoint, limits = limits, oob = oob,
     range = range, reverse = reverse, na.value = na.value,
     na.label = na.label, interpolate = interpolate, transform = transform,
-    closure = closure, as_count = isTRUE(as_count)
+    closure = closure, as_count = isTRUE(as_count),
+    mirror = mirror, center = center, band = band
   )
   sc
 }
@@ -173,11 +191,12 @@ map_scale_continuous <- function(pal_fn, midpoint, limits, oob, na.value,
     }
   }
 
-  call_scale(ggplot2::continuous_scale, c(list(
+  lab <- resolve_labels(labels, "value")
+  sc <- call_scale(ggplot2::continuous_scale, c(list(
     aesthetics = aesthetics,
     palette = pal,
     name = name,
-    labels = resolve_labels(labels, "value"),
+    labels = lab,
     limits = limits,
     rescaler = rescaler,
     oob = resolve_oob(oob),
@@ -186,6 +205,8 @@ map_scale_continuous <- function(pal_fn, midpoint, limits, oob, na.value,
     guide = guide %||% "colourbar",
     super = ScaleContinuousMap
   ), list(...)))
+  sc$label_parts <- attr(lab, "parts")
+  sc
 }
 
 # --- rank -----------------------------------------------------------------
@@ -223,8 +244,9 @@ map_scale_rank <- function(pal_fn, limits, na.value, labels, guide, name,
 map_scale_binned <- function(pal_fn, style, n, breaks, midpoint, limits, oob,
                              na.value, na.label, na.show, labels, interpolate,
                              transform, guide, name, aesthetics,
-                             closure = "right", as_count = FALSE, ...) {
-  brk <- resolve_breaks(breaks, style, n, midpoint)
+                             closure = "right", as_count = FALSE,
+                             mirror = "none", center = "break", band = NULL, ...) {
+  brk <- resolve_breaks(breaks, style, n, midpoint, mirror, center, band)
   if (isTRUE(as_count)) {
     inner <- brk
     brk <- if (is.function(inner)) function(x) count_breaks(inner(x), x)
@@ -282,14 +304,20 @@ map_scale_binned <- function(pal_fn, style, n, breaks, midpoint, limits, oob,
   sc$unique_labels <- wants_unique
   sc$label_parts <- attr(lab, "parts")
   sc$as_count <- isTRUE(as_count)
+  sc$palette_fn <- pal_fn      # for symmetric sampling over mirrored breaks
   sc
 }
 
-resolve_breaks <- function(breaks, style, n, midpoint = NULL) {
+resolve_breaks <- function(breaks, style, n, midpoint = NULL, mirror = "none",
+                           center = "break", band = NULL) {
   if (is.function(breaks)) return(breaks)
   if (is.numeric(breaks)) return(sort(unique(as.numeric(breaks))))
-  force(style); force(n); force(midpoint)
+  force(style); force(n); force(midpoint); force(mirror); force(center); force(band)
   function(x) {
+    if (mirror != "none") {
+      return(compute_breaks(x, style = style, n = n, midpoint = midpoint,
+                            mirror = mirror, center = center, band = band))
+    }
     b <- compute_breaks(x, style = style, n = n)
     if (!is.null(midpoint)) b <- anchor_breaks(b, midpoint)
     b

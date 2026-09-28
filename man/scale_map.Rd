@@ -25,6 +25,9 @@ scale_map(
   interpolate = c("even", "value"),
   closure = c("right", "left"),
   as_count = FALSE,
+  mirror = c("none", "value", "count"),
+  center = c("break", "band"),
+  band = NULL,
   drop = FALSE,
   transform = "identity",
   guide = NULL,
@@ -58,7 +61,9 @@ of \code{\link[=map_styles]{map_styles()}}; see \code{\link[=map_styles_info]{ma
 (such as \code{\link[=breaks_jenks]{breaks_jenks()}}), or \code{NULL} to use \code{style} and \code{n}.}
 
 \item{midpoint}{Value anchored to the centre of a diverging palette. Use
-\code{midpoint = 0} with a diverging palette; \code{NULL} for sequential palettes.}
+\code{midpoint = 0} with a diverging palette; \code{NULL} for sequential palettes.
+For \code{type = "intervals"} it also puts a class break exactly on the
+midpoint, and with \code{mirror} it is what the classes are built around.}
 
 \item{limits}{Length-2 numeric, a function of the data (see
 \code{\link[=trim_limits]{trim_limits()}}, \code{\link[=symmetric_limits]{symmetric_limits()}}), or \code{NULL} for the data range.}
@@ -101,6 +106,13 @@ breaks are rounded to whole numbers, classes are left-closed, and
 interval labels read "0 to 4", "5 to 9" rather than "0 to 5", "5 to 10".
 Implies \code{closure = "left"} and \code{labels = "ranges"} unless labels are
 given.}
+
+\item{mirror, center, band}{For \code{type = "intervals"} with a \code{midpoint}:
+classify each side of the midpoint symmetrically, with \code{n} classes \emph{per
+side}; see \code{\link[=compute_breaks]{compute_breaks()}}. The palette is sampled symmetrically over
+the whole mirrored set, so its neutral colour sits on the midpoint (or
+on the neutral \code{band}) even when one side's data stop short, and the
+classes one side never reaches are simply not drawn.}
 
 \item{drop}{For categorical scales, drop unused factor levels.}
 

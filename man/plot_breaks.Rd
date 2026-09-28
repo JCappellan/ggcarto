@@ -56,7 +56,9 @@ unchanged.}
 
 \item{bins}{Number of histogram bins.}
 
-\item{...}{Extra arguments for the style(s), passed to \code{\link[=compute_breaks]{compute_breaks()}}.}
+\item{...}{Extra arguments for the style(s), passed to \code{\link[=compute_breaks]{compute_breaks()}},
+including \code{midpoint}, \code{mirror}, \code{center} and \code{band} for a diverging
+variable.}
 
 \item{styles}{For \code{compare_breaks()}, a character vector of style names.}
 }

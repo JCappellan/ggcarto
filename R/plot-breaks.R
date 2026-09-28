@@ -22,7 +22,9 @@
 #'   dropped from the display (with a message); the breaks themselves are
 #'   unchanged.
 #' @param bins Number of histogram bins.
-#' @param ... Extra arguments for the style(s), passed to [compute_breaks()].
+#' @param ... Extra arguments for the style(s), passed to [compute_breaks()],
+#'   including `midpoint`, `mirror`, `center` and `band` for a diverging
+#'   variable.
 #' @return A ggplot object.
 #' @examples
 #' x <- rlnorm(500, 3, 1)

@@ -1,26 +1,55 @@
-# ggcarto 0.3.0
+# ggcarto 0.4.0
+
+The map tells the reader what the scale did to the data: where the classes
+sit around "no change", where the ramp was capped, and how the page is laid
+out.
 
 ## Breaking
 
-* The `alpha` argument has been removed from `scale_map()`, its wrappers
-  and `as_palette()`. Transparency belongs to the layer (`geom_sf(alpha =
-  )`), not the scale, and a translucent legend key misreports the map.
+* The `alpha` argument has been removed from `scale_map()`, its wrappers and
+  `as_palette()`. Transparency belongs to the layer (`geom_sf(alpha = )`),
+  not the scale; a translucent legend key misreports the map.
+* `label_map()` now defaults to `open = "auto"`: inside a ggcarto scale an
+  end class or limit tick opens ("$107k and above", "-100% or less") exactly
+  when values were squished past that limit. Legends of maps with `limits`
+  will change wording; that is the point. `open = FALSE` restores the old
+  labels. Outside a scale `"auto"` is closed, so `label_map()` used directly
+  is unchanged.
 
-## Look
+## Diverging variables
 
-* `theme_ggcarto()`: a complete map theme -- warm paper background, navy
-  title, grey subtitle and caption, no axes, legend under the map. Its
-  colours are exposed as `ggcarto_colours()`, and the package's own
-  diagnostic charts (`plot_breaks()`, `compare_breaks()`, `plot()` on a
-  class guide, `plot_palette()`) are drawn in the same style.
-* Bivariate palettes: 17 corner presets (nine new) plus five complete
-  Stevens 3 x 3 grids (`"stevens-purpleblue"`, `"stevens-violet"`,
-  `"stevens-greenpink"`, `"stevens-cyanred"`, `"stevens-brown"`), resampled
-  for any `n`. `bivariate_palette()` also accepts a full `k * k` grid of
-  colours and, with cols4all installed, `"c4a::<name>"` bivariate palettes.
-  `plot_bivariate_palettes()` draws them all.
+* `mirror = c("none", "value", "count")` on `compute_breaks()`,
+  `scale_map()` (intervals), `class_summary()`, `class_guide()`,
+  `plot_breaks()` and `compare_breaks()`: classes built symmetrically about
+  `midpoint`, `n` per side, with `center = "band"` and `band` for a neutral
+  middle class. The scale samples the palette over the whole mirrored set
+  (a new `map()` on `ScaleBinnedMap`), so the neutral colour stays on the
+  midpoint even when one side's data stop short; the classes that side
+  never reaches are kept, reported by `class_summary()` and
+  `diagnose_map()`, and exempt from `class_guide()`'s balance rules.
+
+## Layout
+
+* `theme_ggcarto()`: a complete map theme -- warm paper, navy title, grey
+  annotation, no axes, legend bottom-left -- with `legend` positions
+  (including `"inset"`), `variant = "dark"` and `"print"`, `panel = "grey"`
+  and `title_family`. Its colours are `ggcarto_colours()`, and the
+  diagnostic charts are drawn in the same style.
+* `guide_map()`: a framed, ticked colourbar or stepped bar of a sensible
+  length, or keys in reading order, sized for the theme's horizontal legend.
+* `ScaleContinuousMap` gains `get_breaks()`/`get_labels()` that put the
+  limits among the ticks and label them open when data were squished.
+  `diagnose_map()` reports squishing as information when the legend says so
+  and as a warning when it does not.
+* Bivariate palettes: 17 corner presets (nine new) plus five Stevens 3 x 3
+  grids (`"stevens-purpleblue"`, `"stevens-violet"`, `"stevens-greenpink"`,
+  `"stevens-cyanred"`, `"stevens-brown"`), resampled for any `n`.
+  `bivariate_palette()` also accepts a full `k * k` grid and, with cols4all
+  installed, `"c4a::<name>"`. `plot_bivariate_palettes()` draws them all.
 * New article `vignette("good-maps")`: what a good choropleth has and which
   ggcarto metric checks each convention.
+
+# ggcarto 0.3.0
 
 The theme of this release is *defensible choices*: the package now shows its
 working, so a classification, a class count and a palette can each be
