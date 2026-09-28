@@ -1,0 +1,792 @@
+---
+title: "ggcarto: colouring a map properly"
+subtitle: "Class intervals, palettes, limits and legends for ggplot2"
+author: "Joel Capellan"
+date: today
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    toc-location: left
+    number-sections: true
+    code-fold: false
+    fig-width: 7
+    fig-height: 4.6
+    fig-dpi: 110
+    theme: cosmo
+knitr:
+  opts_chunk:
+    collapse: true
+    comment: "#>"
+    message: false
+    warning: false
+    dev: "png"
+vignette: >
+  %\VignetteIndexEntry{ggcarto: colouring a map properly}
+  %\VignetteEngine{quarto::html}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r}
+#| label: setup
+library(ggcarto)
+library(ggplot2)
+library(dplyr)
+library(maps)
+library(patchwork)
+```
+
+## The workflow, in one page
+
+ggcarto is organised around a sequence: **inspect → choose → classify → map →
+diagnose**. Look at the distribution before classing it, choose the number of
+classes with the trade-offs in front of you, classify with a method you can
+name, draw the map, then read the decisions back off the finished map. Here it
+is once, end to end, on the package's bundled data: the 217 counties of the US
+Northeast as an sf object, with `geom_sf()`.
+
+```{r}
+#| label: workflow-data
+library(sf)
+income <- northeast_counties$median_income
+```
+
+**Inspect.** Where do the candidate methods put their breaks?
+
+```{r}
+#| label: workflow-inspect
+#| fig-height: 5
+compare_breaks(income, c("equal", "quantile", "fisher"), n = 5)
+```
+
+**Choose.** How many classes? `class_guide()` scores each candidate count on
+fit, balance, separation and readability, and suggests one. It says
+*suggested*, not *optimal*: there is no universal optimum, only a trade-off,
+and the table is there so you can disagree.
+
+```{r}
+#| label: workflow-choose
+class_guide(income, style = "fisher")
+```
+
+**Classify.** The classes as a table, with the labels the legend will carry.
+
+```{r}
+#| label: workflow-classify
+class_summary(income, "fisher", 5,
+              labels = label_map(style = "interval", prefix = "$",
+                                 big.mark = ",", digits = 0, open = TRUE))
+```
+
+```{r}
+#| label: workflow-plot-breaks
+#| fig-height: 3
+plot_breaks(income, "fisher", 5)
+```
+
+**Map.**
+
+```{r}
+#| label: workflow-map
+#| fig-height: 4.6
+map <- ggplot(northeast_counties) +
+  geom_sf(aes(fill = median_income), colour = "white", linewidth = 0.1) +
+  scale_fill_intervals("brewer::YlGnBu", style = "fisher", n = 5,
+                       range = c(0.15, 1), na.value = "grey85",
+                       labels = label_map(style = "interval", prefix = "$",
+                                          big.mark = ",", digits = 0, open = TRUE)) +
+  labs(title = "Median household income", fill = NULL) +
+  theme_ggcarto(base_size = 9)
+map
+```
+
+**Diagnose.** What did that scale actually decide, and what would a reader get
+wrong?
+
+```{r}
+#| label: workflow-diagnose
+diagnose_map(map)
+```
+
+The rest of this vignette takes each of those decisions in turn, on a second
+dataset. `vignette("good-maps")` explains what each of the numbers above is
+for, and what a good choropleth has beyond them.
+
+## The data
+
+Everything below uses `ggplot2::midwest` — 437 counties across five states, from
+the 2000 census — joined to county polygons from the **maps** package. It is a
+good test case precisely because its variables misbehave in different ways:
+`poptotal` is dominated by one county, `percollege` is nearly normal,
+`percblack` has a long thin tail.
+
+```{r}
+#| label: data
+data(midwest)
+
+# strip punctuation so "St. Clair" and "stclair" meet in the middle
+norm <- function(x) gsub("[^a-z]", "", tolower(x))
+
+mw_data <- midwest |>
+  mutate(
+    region = tolower(state.name[match(state, state.abb)]),
+    sub    = norm(county)
+  ) |>
+  # a diverging variable: how far a county sits from its own state's median
+  mutate(college_gap = percollege - median(percollege), .by = state)
+
+mw_poly <- map_data("county") |>
+  filter(region %in% c("illinois", "indiana", "michigan", "ohio", "wisconsin")) |>
+  mutate(sub = norm(subregion)) |>
+  left_join(mw_data, by = c("region", "sub"))
+
+nrow(mw_data)
+sum(is.na(mw_poly$poptotal))   # every polygon found its data
+```
+
+A helper, so the rest of the vignette is only about the scale:
+
+```{r}
+#| label: helper
+mw_map <- function(scale, var = "poptotal", title = NULL) {
+  ggplot(mw_poly, aes(long, lat, group = group, fill = .data[[var]])) +
+    geom_polygon(colour = "white", linewidth = 0.07) +
+    coord_quickmap() +
+    scale +
+    labs(title = title, fill = NULL) +
+    theme_void(base_size = 9) +
+    theme(
+      plot.title = element_text(face = "bold", size = 9.5, hjust = 0),
+      legend.key.size = unit(8, "pt"),
+      legend.text = element_text(size = 6.5)
+    )
+}
+```
+
+## Why this package exists
+
+### Equal intervals lose the map
+
+County population spans three orders of magnitude and one county — Cook,
+Illinois — holds 5.1 million people. Cut that into five equal-width classes and
+436 counties land in the first one.
+
+```{r}
+#| label: equal-vs-quantile
+#| fig-height: 3.4
+mw_map(scale_fill_intervals("brewer::YlGnBu", "equal", 5), title = "equal width") +
+  mw_map(scale_fill_intervals("brewer::YlGnBu", "quantile", 5), title = "quantile")
+```
+
+```{r}
+#| label: class-counts
+table(cut(mw_data$poptotal, compute_breaks(mw_data$poptotal, "equal", 5),
+          include.lowest = TRUE))
+table(cut(mw_data$poptotal, compute_breaks(mw_data$poptotal, "quantile", 5),
+          include.lowest = TRUE))
+```
+
+### ggplot2 cannot do this on its own
+
+This is the part worth knowing even if you never use the package. ggplot2 calls
+a binned scale's `breaks` function with the scale **limits** — two numbers — not
+with the data. Every classification algorithm a cartographer uses needs the
+distribution. So the obvious thing silently does the wrong thing:
+
+```{r}
+#| label: silent-failure
+breaks_of <- function(p) {
+  b <- ggplot_build(p)
+  sort(unique(b$plot$scales$scales[[1]]$get_breaks()))
+}
+
+base <- ggplot(mw_data, aes(percollege, percbelowpoverty, colour = poptotal)) +
+  geom_point()
+
+# looks right, is not: ggplot2 only ever passes the limits to breaks_jenks()
+breaks_of(base + scale_colour_binned(breaks = breaks_jenks(5)))
+
+# ggcarto keeps the trained data, so jenks means jenks
+breaks_of(base + scale_colour_intervals(style = "jenks", n = 5))
+
+compute_breaks(mw_data$poptotal, "jenks", 5)
+```
+
+No warning is emitted in the first case. `ggcarto` ships a `ScaleBinnedMap`
+ggproto that retains the trained values; that single fix is most of the
+package's reason to exist.
+
+## One engine, five mappings
+
+`scale_fill_map()` and `scale_colour_map()` cover every way a variable can be
+coloured. `type` is the only thing that changes.
+
+```{r}
+#| label: types
+#| fig-height: 6.5
+pal <- "brewer::YlGnBu"
+(
+  mw_map(scale_fill_map(pal, type = "continuous"), title = "continuous") +
+  mw_map(scale_fill_map(pal, type = "intervals", style = "jenks", n = 6),
+         title = 'intervals, style = "jenks"')
+) / (
+  mw_map(scale_fill_map(pal, type = "rank"), title = "rank") +
+  mw_map(scale_fill_cat("brewer::Set2", na.value = "grey90"),
+         var = "state", title = "categorical")
+)
+```
+
+Each has a shorthand that autocompletes next to ggplot2's own scales:
+
+| `type` | Shorthand |
+|---|---|
+| `"continuous"` | `scale_fill_cont()` |
+| `"intervals"` | `scale_fill_intervals()` |
+| `"categorical"` | `scale_fill_cat()` |
+| `"ordinal"` | `scale_fill_ord()` |
+| `"rank"` | `scale_fill_rank()` |
+
+`rank` is worth a second look. It colours by position in the distribution
+rather than by value, so it is immune to outliers entirely — useful as a first
+pass when you do not yet know the shape of a variable. Its legend is keyed at
+the quartiles rather than drawn as a bar, because a bar would place its ticks
+linearly in value while the colours sit by rank — the labels would point at the
+wrong colours.
+
+## Class intervals
+
+### The full set
+
+```{r}
+#| label: styles-table
+map_styles_info()
+```
+
+### Side by side
+
+```{r}
+#| label: style-gallery
+#| fig-height: 8.5
+gallery <- function(styles, var, n = 5) {
+  plots <- lapply(styles, function(s) {
+    mw_map(scale_fill_intervals("brewer::YlGnBu", s, n), var = var, title = s)
+  })
+  Reduce(`+`, plots) + plot_layout(ncol = 3)
+}
+gallery(c("equal", "pretty", "quantile", "jenks", "fisher", "kmeans",
+          "headtails", "box", "maximum"), var = "poptotal")
+```
+
+Note how differently they treat the same skew. `equal` and `pretty` are honest
+about magnitude and show nothing. `quantile` maximises contrast but implies
+differences that are not there at the low end. `jenks`, `fisher` and `kmeans`
+chase gaps in the distribution and land in similar places. `headtails` is built
+for exactly this shape — a heavy tail — and splits recursively above the mean.
+`box` and `maximum` are diagnostic rather than presentational.
+
+### Choosing one
+
+| If the variable is | Try |
+|---|---|
+| Roughly uniform, and magnitude matters | `equal`, `pretty` |
+| Skewed, and you want visible geography | `quantile` |
+| Skewed with real clusters | `jenks`, `fisher`, `kmeans` |
+| Heavy-tailed (populations, incomes, counts) | `headtails`, `log` |
+| Roughly normal, and deviation is the story | `sd` |
+| Being explored rather than presented | `box`, `maximum` |
+
+`fisher` is the exact optimum that `jenks` approximates, and it is faster.
+Prefer it unless you need to match a published `jenks` map.
+
+### Standard deviations
+
+`sd` puts breaks at multiples of the standard deviation either side of the
+mean, which is the classic treatment for a variable read as deviation.
+`step` controls the class width.
+
+```{r}
+#| label: sd
+#| fig-height: 3.4
+mw_map(scale_fill_intervals("brewer::RdBu", "sd", n = 6,
+                            midpoint = 0, reverse = TRUE, labels = "ranges"),
+       var = "college_gap", title = "sd, 1 sd classes") +
+  mw_map(scale_fill_intervals("brewer::RdBu", "sd", n = 6, midpoint = 0,
+                              reverse = TRUE, labels = "ranges",
+                              breaks = breaks_sd(6, step = 0.5)),
+         var = "college_gap", title = "sd, 0.5 sd classes")
+```
+
+### Log and geometric
+
+```{r}
+#| label: log
+#| fig-height: 3.4
+mw_map(scale_fill_intervals("brewer::YlGnBu", "log", 5), var = "popdensity",
+       title = 'style = "log"') +
+  mw_map(scale_fill_intervals("brewer::YlGnBu", "geometric", 5), var = "popdensity",
+         title = 'style = "geometric"')
+```
+
+`transform` is separate from `style`: it changes where colour sits along the
+ramp, while `style` decides where the class edges fall. Classification always
+happens in data space, so labels stay in the units you started with.
+
+```{r}
+#| label: transform
+mw_map(scale_fill_map("brewer::YlGnBu", transform = "log10"), var = "popdensity",
+       title = "continuous, log10 transform")
+```
+
+## Break functions on their own
+
+Every style is also a plain function of the data. That makes them useful well
+outside this package — including inside ggplot2's own binned scales, where they
+are the missing piece.
+
+```{r}
+#| label: breaks-standalone
+breaks_jenks(5)(mw_data$poptotal)
+compute_breaks(mw_data$percbelowpoverty, "quantile", n = 4)
+
+# classify a column yourself
+mw_data |>
+  mutate(pop_class = cut(poptotal, breaks_fisher(5)(poptotal),
+                         include.lowest = TRUE)) |>
+  count(pop_class)
+```
+
+```{r}
+#| label: breaks-elsewhere
+#| fig-height: 3.2
+ggplot(mw_data, aes(percollege, percbelowpoverty)) +
+  geom_point(aes(colour = poptotal), size = 1.6) +
+  ggplot2::scale_colour_binned(
+    breaks = breaks_quantile(5)(mw_data$poptotal),   # note: pre-computed
+    type = "viridis"
+  ) +
+  theme_minimal(9)
+```
+
+The `(mw_data$poptotal)` there is not a typo. Passing the *function* to a plain
+ggplot2 scale is what fails silently; passing the computed numbers works.
+`scale_colour_intervals()` exists so you do not have to remember that.
+
+## Palettes
+
+### One syntax, five sources
+
+```{r}
+#| label: palette-sources
+palette_sources()
+as_palette("hcl::Zissou 1")(5)
+as_palette("brewer::RdBu")(5)
+as_palette("brewer::YlGnBu")(5)
+as_palette(c("#1b1b3a", "#f2f2f2", "#b3001b"))(5)
+```
+
+`cols4all` and `paletteer` are optional. Install either and their names work in
+the same place: `"c4a::hcl.blues3"`, `"scico::roma"`, `"MetBrewer::Hokusai1"`.
+
+### Finding one
+
+```{r}
+#| label: palette-search
+map_palettes("div") |> head(8)
+map_palettes(source = "brewer", pattern = "^Yl")
+nrow(map_palettes())
+```
+
+### Shaping one
+
+`reverse` flips it, `range` trims the ends.
+
+```{r}
+#| label: palette-shaping
+#| fig-height: 3.4
+mw_map(scale_fill_intervals("brewer::YlOrRd", "quantile", 5),
+       var = "percbelowpoverty", title = "full ramp") +
+  mw_map(scale_fill_intervals("brewer::YlOrRd", "quantile", 5,
+                              range = c(0.25, 1)),
+         var = "percbelowpoverty", title = "range = c(0.25, 1)")
+```
+
+Trimming matters more than it sounds. The pale end of a sequential ramp is hard
+to tell from the background and from a "no data" grey; `range = c(0.2, 1)` buys
+back the distinction at almost no cost.
+
+Ramp direction is the other thing worth checking before anything else. A
+choropleth is read as *more ink means more of the thing*. ColorBrewer's
+sequential palettes already run light to dark; viridis and its relatives run
+dark to light, so on a map they need turning round.
+
+```{r}
+#| label: reverse
+#| fig-height: 3.4
+mw_map(scale_fill_intervals("viridis::mako", "quantile", 5),
+       var = "percbelowpoverty", title = "mako as shipped: dark = low") +
+  mw_map(scale_fill_intervals("viridis::mako", "quantile", 5, reverse = TRUE),
+         var = "percbelowpoverty", title = "reverse = TRUE: dark = high")
+```
+
+## Diverging scales
+
+Three things have to line up: a diverging palette, a `midpoint`, and limits that
+are symmetric about it. `midpoint` also places a class break exactly on the
+midpoint, so the neutral colour means what it looks like it means.
+
+```{r}
+#| label: diverging
+#| fig-height: 3.4
+mw_map(scale_fill_map("brewer::RdBu", midpoint = 0, reverse = TRUE),
+       var = "college_gap", title = "midpoint = 0") +
+  mw_map(scale_fill_map("brewer::RdBu", midpoint = 0, reverse = TRUE,
+                        limits = symmetric_limits(0)),
+         var = "college_gap", title = "+ symmetric_limits(0)")
+```
+
+```{r}
+#| label: diverging-break
+sc <- ggplot_build(
+  mw_map(scale_fill_intervals("brewer::RdBu", "quantile", 6, midpoint = 0))
+)$plot$scales$scales[[1]]
+sc$frozen_breaks
+0 %in% sc$frozen_breaks
+```
+
+## Limits, outliers and squishing
+
+`oob = "squish"` is the default, which is the cartographic convention: a value
+past the end of the scale joins the end class rather than disappearing.
+`trim_limits()` sets the limits from quantiles, so one county cannot flatten
+the whole ramp.
+
+```{r}
+#| label: limits
+#| fig-height: 6.5
+(
+  mw_map(scale_fill_map("brewer::YlGnBu"), title = "full range") +
+  mw_map(scale_fill_map("brewer::YlGnBu", limits = trim_limits(0.02, 0.95)),
+         title = "trim_limits(0.02, 0.95), squished")
+) / (
+  mw_map(scale_fill_map("brewer::YlGnBu", limits = trim_limits(0.02, 0.95),
+                        oob = "censor", na.value = "grey70"),
+         title = 'oob = "censor"') +
+  mw_map(scale_fill_map("brewer::YlGnBu", limits = c(0, 2e5)),
+         title = "limits = c(0, 2e5)")
+)
+```
+
+Squish and censor are a real choice, not a default to accept blindly. Squishing
+keeps the map complete but hides how extreme the extreme is; censoring is
+honest about the exclusion but leaves holes that read as missing data. If you
+squish, say so in the legend — `label_map(open = TRUE)` writes
+"and above" for you.
+
+## Legend labels
+
+```{r}
+#| label: labels
+#| fig-height: 6.5
+(
+  mw_map(scale_fill_intervals("brewer::YlGnBu", "quantile", 5),
+         title = "default: break values") +
+  mw_map(scale_fill_intervals("brewer::YlGnBu", "quantile", 5, labels = "ranges"),
+         title = 'labels = "ranges"')
+) / (
+  mw_map(scale_fill_intervals("brewer::YlGnBu", "quantile", 5,
+                              labels = label_map(style = "interval", open = TRUE,
+                                                 scale = 1/1000, suffix = "k",
+                                                 digits = 0)),
+         title = "thousands, open ends") +
+  mw_map(scale_fill_intervals("brewer::YlGnBu", "quantile", 5,
+                              labels = label_map(style = "interval", suffix = "%",
+                                                 digits = 1, separator = " - ")),
+         var = "percbelowpoverty", title = "percent, custom separator")
+)
+```
+
+`label_map()` on its own, outside any scale:
+
+```{r}
+#| label: label-map
+label_map(prefix = "$", big.mark = ",", digits = 0)(c(1250, 48000, 1.2e6))
+label_map(style = "interval", digits = 0)(c(0, 10, 25, 60))
+label_map(style = "interval", open = TRUE, suffix = "%", digits = 1)(c(0, 10, 25, 60))
+label_map(scale = 1/1e6, suffix = "M", digits = 2)(5105067)
+```
+
+## Missing data
+
+```{r}
+#| label: missing
+#| fig-height: 3.4
+holes <- mw_poly |>
+  mutate(percollege = ifelse(region == "indiana" & sub < "e", NA, percollege))
+
+gap_map <- function(sc, ttl) {
+  ggplot(holes, aes(long, lat, group = group, fill = percollege)) +
+    geom_polygon(colour = "white", linewidth = 0.07) +
+    coord_quickmap() + sc + labs(title = ttl, fill = NULL) +
+    theme_void(base_size = 9) +
+    theme(plot.title = element_text(face = "bold", size = 9.5),
+          legend.key.size = unit(8, "pt"), legend.text = element_text(size = 6.5))
+}
+
+gap_map(scale_fill_intervals("brewer::YlGnBu", "quantile", 5,
+                             na.value = "grey88"), "na.value = grey") +
+  gap_map(scale_fill_intervals("brewer::YlGnBu", "quantile", 5,
+                               na.value = "white"), "na.value = white")
+```
+
+Categorical scales get a labelled key for missing values:
+
+```{r}
+#| label: missing-cat
+#| fig-height: 3.4
+mw_poly |>
+  mutate(size_class = cut(poptotal, breaks_fisher(4)(poptotal),
+                          labels = c("small", "mid", "large", "metro"),
+                          include.lowest = TRUE),
+         size_class = ifelse(region == "wisconsin" & sub < "d", NA,
+                             as.character(size_class))) |>
+  ggplot(aes(long, lat, group = group, fill = size_class)) +
+  geom_polygon(colour = "white", linewidth = 0.07) +
+  coord_quickmap() +
+  scale_fill_cat("brewer::YlGnBu", na.value = "grey88", na.label = "No data") +
+  theme_void(9) + labs(fill = NULL)
+```
+
+On a continuous colourbar there is nowhere to put a "no data" key without a
+custom guide; that is a known gap. For now, either use an interval scale — which
+gets one — or annotate it yourself.
+
+## How colours attach to classes
+
+`interpolate = "even"` gives every class an evenly spaced colour, the way GIS
+software does. `interpolate = "value"` places each class's colour at its
+position along the data range, so a wide class sits further along the ramp.
+On skewed data the difference is dramatic.
+
+```{r}
+#| label: interpolate
+#| fig-height: 3.4
+mw_map(scale_fill_intervals("brewer::YlGnBu", "quantile", 5, interpolate = "even"),
+       title = 'interpolate = "even"') +
+  mw_map(scale_fill_intervals("brewer::YlGnBu", "quantile", 5, interpolate = "value"),
+         title = 'interpolate = "value"')
+```
+
+"even" is the right default for reading a map. "value" is the honest one if the
+reader will treat colour as a continuous quantity.
+
+## Two variables at once: bivariate maps
+
+A bivariate choropleth shows two variables on one map by classing each into
+`n` intervals and giving every one of the `n × n` combinations its own colour.
+Three classes each is the convention; the legend is a 3 × 3 grid and the eye
+can still tell the cells apart.
+
+Three steps. Classify both variables into one factor:
+
+```{r}
+#| label: bivariate-classify
+mw_poly <- mw_poly |>
+  mutate(cls = classify_bivariate(percollege, percbelowpoverty, n = 3,
+                                  style = "quantile"))
+table(mw_poly$cls)
+attr(mw_poly$cls, "breaks_x")
+```
+
+`style = "quantile"` is the usual choice here because it guarantees every row
+and column of the legend has counties in it. Any style from `map_styles()`
+works; `style_x` and `style_y` class the two variables differently, and
+`trans_x` / `trans_y` class a skewed variable on, say, a log scale while
+the stored breaks -- and therefore the legend -- stay in the original units:
+
+```{r}
+#| label: bivariate-trans
+attr(classify_bivariate(mw_data$poptotal, mw_data$percollege, n = 3,
+                        style_x = "equal", trans_x = "log10"), "breaks_x")
+```
+
+Colour the map with `scale_fill_bivariate()`, which keeps all nine classes
+even if one is empty, so map and legend always agree:
+
+```{r}
+#| label: bivariate-map
+#| fig-width: 8
+#| fig-height: 6
+bimap <- ggplot(mw_poly, aes(long, lat, group = group, fill = cls)) +
+  geom_polygon(colour = "white", linewidth = 0.1) +
+  coord_quickmap() +
+  scale_fill_bivariate("purple-green", n = 3) +
+  labs(title = "College attainment and poverty, Midwest counties") +
+  theme_void()
+
+legend <- legend_bivariate("purple-green", classes = mw_poly$cls,
+                           style = "diamond", ends = FALSE, text_size = 8,
+                           xlab = "% college", ylab = "% in poverty",
+                           labels = label_map(digits = 0, suffix = "%"),
+                           background = alpha("white", 0.85))
+
+inset_legend(bimap, legend, position = "topleft", width = 0.36)
+```
+
+The scale draws no legend of its own; `legend_bivariate()` is a small ggplot
+you place with `inset_legend()` (patchwork underneath) or beside the map with
+`patchwork` / `cowplot`. Passing `classes = ` gives it the break points so
+the grid edges carry real values; `ends = FALSE` drops the data minimum and
+maximum from the labels, leaving only the cut points, which is what most
+published maps show.
+
+Two layouts. `style = "square"` has an arrowed axis on each side and reads
+like a chart. `style = "diamond"` is the rotated grid newspapers use, with
+both-low at the bottom and both-high at the top; values run along the two
+lower edges, or `corner_labels` puts a short phrase at each corner and drops
+the numbers altogether.
+
+```{r}
+#| label: bivariate-styles
+#| fig-width: 9
+#| fig-height: 3
+patchwork::wrap_plots(
+  legend_bivariate("purple-green", 3, xlab = "Income", ylab = "% degree",
+                   breaks_x = c(20, 40, 60, 90) * 1000,
+                   breaks_y = c(5, 15, 25, 50),
+                   labels = label_map(big.mark = ","), text_size = 10),
+  legend_bivariate("blue-red", 4, style = "diamond",
+                   xlab = "% Black", ylab = "% Hispanic",
+                   breaks_x = c(0, 5, 20, 50, 95), breaks_y = c(0, 5, 20, 50, 95),
+                   labels = label_map(suffix = "%"), text_size = 10),
+  legend_bivariate("blue-yellow", 3, style = "diamond", text_size = 9,
+                   corner_labels = c("Low diversity\nLittle change",
+                                     "High diversity\nLittle change",
+                                     "Low diversity\nBig increase",
+                                     "High diversity\nBig increase")),
+  nrow = 1
+)
+```
+
+Palettes come from `bivariate_palettes()` -- corner presets that work at
+any `n`, and the Stevens 3 × 3 grids (`"stevens-purpleblue"` ...) -- from
+four corner colours or a full grid of your own, or from any two sequential
+ramps the package already knows. `plot_bivariate_palettes()` draws them all.
+
+```{r}
+#| label: bivariate-palettes
+#| fig-width: 8
+#| fig-height: 2.6
+pals <- list(
+  legend_bivariate("blue-red", 3, "x", "y"),
+  legend_bivariate("teal-pink", 3, "x", "y"),
+  legend_bivariate(c("#f3f3f3", "steelblue", "firebrick", "#2b1b2b"), 4, "x", "y"),
+  legend_bivariate(list(x = "brewer::Blues", y = "brewer::Reds"), 3, "x", "y")
+)
+patchwork::wrap_plots(pals, nrow = 1)
+```
+
+Reading a bivariate map takes practice, and readers only manage it when the
+legend is close to the map, large enough to see, and labelled with the
+variable names and their direction. `legend_bivariate()` does the last two by
+default; `inset_legend()` handles the first.
+
+## Project defaults
+
+Set the palettes once and stop repeating yourself.
+
+```{r}
+#| label: defaults
+#| fig-height: 3.2
+old <- ggcarto_palettes(seq = "hcl::Batlow", div = "brewer::BrBG",
+                        cat = "brewer::Dark2")
+
+mw_map(scale_fill_intervals(style = "quantile", n = 5), title = "no palette named") +
+  mw_map(scale_fill_map(midpoint = 0), var = "college_gap",
+         title = "no palette named, diverging")
+```
+
+On ggplot2 4.0 and later, `theme_palettes()` pushes the same choices into
+ggplot2's own default scales, so unstyled layers match the ones you scale
+explicitly.
+
+```{r}
+#| label: theme-palettes
+#| fig-height: 3
+ggplot(mw_data, aes(percollege, percbelowpoverty, colour = state)) +
+  geom_point(size = 1.5) +
+  theme_minimal(9) +
+  theme_palettes(cat = "brewer::Dark2")
+```
+
+```{r}
+#| label: restore
+options(ggcarto.palettes = old)
+```
+
+## Not only for maps
+
+Nothing here is map-specific. Any skewed variable benefits, and the legend
+niceties apply anywhere.
+
+```{r}
+#| label: nonmap
+#| fig-height: 3.2
+diamonds |>
+  slice_sample(n = 4000) |>
+  ggplot(aes(carat, price, colour = price)) +
+  geom_point(size = 0.8, alpha = 0.7) +
+  scale_colour_intervals("hcl::Batlow", style = "quantile", n = 6,
+                         labels = label_map(style = "interval", prefix = "$",
+                                            big.mark = ",", digits = 0)) +
+  theme_minimal(9) +
+  labs(colour = NULL)
+```
+
+```{r}
+#| label: nonmap-heat
+#| fig-height: 3.2
+txhousing |>
+  filter(!is.na(median)) |>
+  summarise(median = median(median), .by = c(year, month)) |>
+  ggplot(aes(factor(month), factor(year), fill = median)) +
+  geom_tile(colour = "white", linewidth = 0.4) +
+  scale_fill_intervals("viridis::rocket", style = "fisher", n = 7,
+                       range = c(0.15, 0.95),
+                       labels = label_map(scale = 1/1000, suffix = "k",
+                                          style = "interval", digits = 0)) +
+  labs(x = "month", y = NULL, fill = NULL) +
+  theme_minimal(9)
+```
+
+## Recipes
+
+```r
+# a plain choropleth you would not be embarrassed by
+scale_fill_intervals("brewer::YlGnBu", style = "fisher", n = 6,
+                     range = c(0.15, 1), na.value = "grey90",
+                     labels = label_map(style = "interval", open = TRUE))
+
+# money
+scale_fill_intervals("hcl::Batlow", style = "quantile", n = 5,
+                     labels = label_map(style = "interval", prefix = "$",
+                                        big.mark = ",", digits = 0))
+
+# a rate, diverging around the national figure
+scale_fill_map("brewer::RdBu", midpoint = 6.2, reverse = TRUE,
+               limits = symmetric_limits(6.2),
+               labels = label_map(suffix = "%", digits = 1))
+
+# counts with a long tail
+scale_fill_intervals("brewer::YlGnBu", style = "headtails",
+                     labels = label_map(style = "interval", big.mark = ","))
+
+# outlier-proof, no thinking required
+scale_fill_rank("brewer::YlGnBu")
+```
+
+## Session
+
+```{r}
+#| label: session
+sessionInfo()
+```

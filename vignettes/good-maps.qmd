@@ -1,0 +1,284 @@
+---
+title: "What a good choropleth has, and how ggcarto measures it"
+subtitle: "The principles behind the numbers"
+author: "Joel Capellan"
+date: today
+format:
+  html:
+    toc: true
+    toc-depth: 2
+    toc-location: left
+    number-sections: true
+    fig-width: 7
+    fig-height: 4.6
+    fig-dpi: 110
+    theme: cosmo
+knitr:
+  opts_chunk:
+    collapse: true
+    comment: "#>"
+    message: false
+    warning: false
+bibliography: references.bib
+vignette: >
+  %\VignetteIndexEntry{What a good choropleth has, and how ggcarto measures it}
+  %\VignetteEngine{quarto::html}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r}
+#| label: setup
+library(ggcarto)
+library(ggplot2)
+library(sf)
+cty <- northeast_counties
+```
+
+ggcarto reports a lot of numbers: a *fit* of 0.89, a *smallest class* of
+2.4%, a *dE* of 7.8, a *contrast ratio* of 1.03. This document says what
+each one is for. It starts from what a choropleth map has to do for its
+reader, states the conventions cartographers have settled on for doing it,
+and then names the function and the metric that checks each convention.
+Read it once and the printed reports will make sense; keep the checklist at
+the end.
+
+## What the reader is doing
+
+A person reading a choropleth is doing three things, in this order: finding
+the areas that are dark (or light), matching a colour on the map back to a
+row of the legend, and then reading that row as a sentence about the world:
+"these counties have unemployment above 6%". Every design decision either
+helps one of those three tasks or gets in its way.
+
+Colour is the weakest visual channel we have for reading numbers; position
+and length are far better [@cleveland1984]. On a map, position is spent on
+geography, so colour is all that is left, and the map should ask it to carry
+as little as possible. That is the argument for classing a continuous
+variable into a handful of ordered colours, and for keeping the handful
+small.
+
+## How many classes
+
+**The convention.** Three to seven classes for a sequential (single-hue,
+light-to-dark) scheme; five is the usual choice. With fewer than three the
+map shows no pattern; above seven, readers can no longer match a colour on
+the map back to the legend reliably, especially on small polygons and in
+print [@slocum2009; @brewer2016]. A diverging scheme wants an odd number, so
+there is a neutral middle class sitting on the midpoint.
+
+**What ggcarto measures.** `class_guide()` evaluates each candidate count on
+four things and prints them side by side:
+
+| Column | What it is | How to read it |
+|---|---|---|
+| `fit` | Goodness of variance fit, $1 - SSW/SST$: the share of the variable's variance that lies *between* classes rather than *within* them [@jenks1971]. 0 for one class, 1 when every class is constant. | How faithfully the classes reproduce the distribution. Above 0.80 is the usual floor for a natural-breaks map. It is the criterion Fisher-Jenks optimises, so it means most for that family; for `quantile` it is only descriptive. |
+| `gain` | The increase in fit over the previous candidate. | Where gains fall under 0.05 the curve has flattened and another class is buying legend length, not information. |
+| `smallest class` | Share of observations in the least-populated class. | A class under 2% is a colour the reader will hunt for; under 3 observations it is a legend key for one or two polygons. |
+| `readability` | A rating by count alone: up to 5 excellent, 6 good, 7 fair, 8+ poor. | The perceptual ceiling, independent of the data. |
+
+The suggestion is a rule applied to those columns (the rules are in
+`?class_guide`), and it is called a *suggestion* because there is no
+optimum: fit rises with every added class, forever, and only judgement
+decides where to stop.
+
+```{r}
+#| label: guide
+class_guide(cty$median_income, "fisher")
+```
+
+```{r}
+#| label: guide-plot
+#| fig-height: 4.6
+plot(class_guide(cty$median_income, "fisher"))
+```
+
+## Where the breaks fall
+
+**The convention.** The classification method is an argument about what
+the map is for, not a setting [@monmonier2018]. Natural breaks (`fisher`)
+follow the gaps in the data and give the best single map. Quantiles give
+every class the same number of areas, which makes the map balanced and the
+legend readable as "top fifth"; Brewer and Pickle found readers answered
+questions about quantile maps most accurately [@brewer2002]. Equal intervals
+are honest about magnitude and fail on skewed data. Standard-deviation
+classes answer "above or below average". Fixed breaks are for thresholds
+that mean something outside the data, and for series of maps that must be
+comparable.
+
+**What ggcarto measures.** `class_summary()` shows the count and share in
+every class, the observed minimum and maximum inside each, and the label the
+legend will carry. `plot_breaks()` and `compare_breaks()` put the breaks on
+the histogram, which is the quickest way to see a method fail. Three
+things to look for:
+
+* **Empty or thin classes.** A legend row with no area on the map, or almost
+  none. Equal intervals on a skewed variable produce them reliably.
+* **Breaks too close together.** Two cut points within 1% of the range draw
+  a distinction the data cannot support; quantiles on a variable with a
+  spike produce them.
+* **Where a value on the break goes.** With a break at 10, is 10 "under 10"
+  or "10 and above"? ggplot2 and ggcarto default to `(a, b]` -- 10 goes
+  below; classInt and tmap default to `[a, b)`. `closure = "left"` and
+  `as_count = TRUE` make the choice explicit, and `class_summary()` shows the
+  consequence.
+
+```{r}
+#| label: compare
+#| fig-height: 5
+compare_breaks(cty$pop, c("equal", "quantile", "fisher"), n = 5, log_x = TRUE)
+```
+
+## Colour
+
+**The convention.** Three kinds of palette, for three kinds of data
+[@brewer1994; @harrower2003]. *Sequential*: one hue running light to dark,
+for an ordered variable with a low and a high; darker means more. *Diverging*:
+two hues meeting at a neutral, for an ordered variable with a meaningful
+middle -- zero change, the regional average, 50% -- and the neutral must sit
+on that middle. *Qualitative*: distinct hues at similar lightness, for
+categories with no order, never for a number. The lightness ramp is what
+carries the value; hue is decoration. Roughly one man in twelve has a
+red-green deficiency, so a palette has to survive that [@borland2007;
+@crameri2020].
+
+**What ggcarto measures.** `check_palette()` reports, and `diagnose_map()`
+repeats for the palette actually on the map:
+
+| Measure | What it is | Threshold |
+|---|---|---|
+| Lightness | CIELAB $L^*$ of every class, 0 (black) to 100 (white). | Sequential palettes must run one way; diverging ones must be lightest (or darkest) in the middle with both ends darker. |
+| Centre chroma | Colourfulness of the middle class of a diverging palette. | Above 15, the "neutral" centre is not neutral and readers will not see it as zero. |
+| Adjacent dE | CIE76 colour difference between neighbouring classes. | Under 10 the two are hard to tell apart on small polygons; under 5 they are effectively one class. |
+| Colour vision | The same differences after simulating deuteranopia, protanopia and tritanopia (colorspace); adjacent *and* non-adjacent pairs, because on a map the classes are not lined up. | Under 10, that share of readers loses the distinction. |
+| Contrast | WCAG luminance ratio of each class against the background. | Under 1.2 the class vanishes into the page; trim the pale end with `range = c(0.15, 1)` or draw outlines. |
+| NA distance | dE between the missing-data colour and the nearest class. | Under 10, "no data" reads as a value. |
+
+```{r}
+#| label: palette
+check_palette("brewer::YlGnBu", 5, na.value = "grey85")
+```
+
+```{r}
+#| label: palette-plot
+#| fig-height: 3.4
+plot_palette("brewer::RdYlGn", 7)
+```
+
+Two habits worth adopting before any of that: reverse a palette that runs
+dark-to-light (several viridis palettes do), because a choropleth is read as
+*more ink means more*; and never put a diverging palette on a map without a
+`midpoint`.
+
+## The legend
+
+**The convention.** The legend is where a colour becomes a sentence, so it
+should read like one. Ranges, not bare break values ("$54,000 to $64,000",
+not "64,000"). Rounded numbers; nobody needs $64,528 in a legend
+[@brewer2016]. Units on the numbers. Open end classes when the data extremes
+are not meaningful numbers: "Under $54,000" is a fact about the world,
+"$39,717 to $54,000" is a fact about the dataset. A key for missing data,
+in a colour that cannot be mistaken for a low value. For a bivariate map,
+the legend is a grid, sits close to the map, and names both variables and
+their direction; and no more than a 3 x 3 or 4 x 4 grid, because nine or
+sixteen colours is the limit of what readers can match [@stevens2015].
+
+**What ggcarto does.** `label_map()` writes the labels (`style =
+"interval"`, `open`, `prefix`, `suffix`, `big.mark`, `digits`, `scale`);
+`na_key()` adds the missing-data key that ggplot2's binned and continuous
+legends cannot draw; `legend_bivariate()` draws the grid, with `counts =
+TRUE` to show an empty cell; `diagnose_map()` prints the labels the legend
+will actually carry, so a typo or a wrong unit is caught before the map
+leaves the screen.
+
+## Outliers, limits and missing data
+
+**The convention.** An outlier should not be allowed to stretch the ramp so
+that every other area shares one colour. The cartographic treatment is to
+*squish*: clamp values beyond the limits into the end classes and say so in
+the legend ("$110,000 and above"), rather than drop them as if they were
+missing. Missing data get their own neutral colour and their own key.
+
+**What ggcarto measures.** `diagnose_map()` counts the values outside the
+limits (below and above), says whether they were squished or censored, and
+flags when more than 5% of the areas have been clamped -- at that share the
+map is hiding real variation and the legend must say so. It counts missing
+values and checks their colour against the classes. `trim_limits()` sets
+limits from quantiles of the data (not the range: ggplot2 would otherwise
+hand a limits function only the minimum and maximum).
+
+```{r}
+#| label: diagnose
+p <- ggplot(cty) +
+  geom_sf(aes(fill = pct_poverty), colour = "white", linewidth = 0.1) +
+  scale_fill_intervals("brewer::YlOrRd", "fisher", 5, range = c(0.15, 1),
+                       na.value = "grey85",
+                       labels = label_map(style = "interval", suffix = "%",
+                                          digits = 0, open = TRUE)) +
+  na_key("No data") +
+  theme_ggcarto()
+diagnose_map(p)
+```
+
+## Layout
+
+These are not measured -- they are the part a person still has to do -- but
+they are where most maps go wrong.
+
+* **Projection.** A choropleth compares areas, so use an equal-area
+  projection (Albers for a region, `sf::st_transform()`); `northeast_counties`
+  ships in one. Never plot raw longitude/latitude for a choropleth.
+* **Size and aspect.** Let the region set the aspect ratio and make the map
+  the largest thing on the page. For a report figure, 7 x 5 inches at 150
+  dpi; for a slide, 10 x 5.6. A map that has to be read on a phone needs
+  fewer classes, not smaller text.
+* **Text.** A base size of 11 pt for print, 12 to 14 for screens; legend
+  text no smaller than 8 pt. Title in the darkest ink, subtitle and legend in
+  a grey a step lighter, source and notes in a lighter grey still. Say what,
+  where and when in the title and subtitle; say where the data came from in
+  the caption.
+* **Borders.** Thin white or off-white polygon outlines (`linewidth = 0.1`)
+  separate neighbouring areas of the same class without adding a colour.
+  Drop them entirely at very small sizes.
+* **Background.** A warm off-white background lets the palest class show and
+  is easier on the eye than pure white. That, and the text hierarchy above,
+  is what `theme_ggcarto()` sets.
+* **Legend placement.** Under the map, in a row, for a wide region like the
+  Northeast; to the right for a tall one. A bivariate legend is inset on the
+  map, in an empty corner (`inset_legend()`).
+
+```{r}
+#| label: layout
+#| fig-height: 5.6
+ggplot(cty) +
+  geom_sf(aes(fill = median_income), colour = "white", linewidth = 0.1) +
+  scale_fill_intervals("brewer::YlGnBu", "fisher", 5, range = c(0.15, 1),
+                       labels = label_map(style = "interval", prefix = "$",
+                                          scale = 1/1000, suffix = "k", digits = 0,
+                                          open = TRUE)) +
+  labs(title = "Median household income, 2015-2019",
+       subtitle = "Counties of the US Northeast. Five natural-breaks classes; the top class\nstarts where the suburbs of Boston, New York and Philadelphia do.",
+       caption = "Source: American Community Survey 5-year estimates, via the usdata package. Albers equal-area projection.",
+       fill = NULL) +
+  theme_ggcarto()
+```
+
+## The checklist
+
+Before a map leaves your hands:
+
+1. `class_guide()` -- is the number of classes defensible, and can you say
+   why you chose it?
+2. `class_summary()` -- does every class hold enough areas; do the labels
+   read as sentences with units?
+3. `plot_breaks()` -- do the breaks fall where the data have structure, or
+   where the method's arithmetic put them?
+4. `check_palette()` -- right kind of palette for the variable; classes
+   distinguishable, with and without colour-vision deficiency; palest class
+   visible; missing-data colour distinct.
+5. `diagnose_map()` -- the finished map: nothing flagged that you cannot
+   explain.
+6. The map itself: equal-area projection, a title that says what, where and
+   when, a source, a legend the reader can read as a sentence, a key for
+   missing data.
+
+## References {.unnumbered}

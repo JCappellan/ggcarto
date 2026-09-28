@@ -1,0 +1,1182 @@
+---
+title: "Class intervals, colour, and bivariate maps in ggplot2"
+subtitle: "A tutorial for the ggcarto package — and the cartography behind it"
+author: "Joel Capellan"
+date: today
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    toc-location: left
+    number-sections: true
+    theme: cosmo
+    code-fold: false
+    code-tools: true
+    fig-width: 9
+    fig-height: 5.5
+    fig-dpi: 110
+    link-citations: true
+    smooth-scroll: true
+bibliography: references.bib
+execute:
+  warning: false
+  message: false
+---
+
+```{r}
+#| label: setup
+#| include: false
+knitr::opts_chunk$set(fig.align = "center", out.width = "100%")
+```
+
+## What this document is {.unnumbered}
+
+This is two things at once. It is a tutorial for **ggcarto**, an R package that
+adds cartographic colour scales to ggplot2. And it is a short course in the
+cartography those scales implement: *why* maps class their data into intervals,
+*why* the choice of interval method changes what a map says, *how many* classes
+to use and how to defend the number, *why* map colour follows rules that
+ordinary charts get away with ignoring, and *why* two variables on one map need
+a very particular kind of legend.
+
+Every idea is shown on a real map — the 217 counties of the US Northeast, from
+Pennsylvania to Maine — and every claim about how people read maps is tied to
+the research that established it. You need to know a little R and a little
+ggplot2. You do not need to know anything about cartography.
+
+The package is organised around one sequence, and so is this document:
+
+> **inspect → choose → classify → map → diagnose**
+
+Look at the distribution before you class it. Choose the number of classes
+with the trade-offs in front of you. Classify with a method you can name and
+defend. Draw the map. Then read the decisions back off the finished map and
+check they are the ones you meant to make.
+
+## Setup
+
+### Install
+
+ggcarto lives on GitHub. It needs ggplot2 and classInt; sf draws the polygons,
+and the other packages below are used for layout and tables.
+
+```{r}
+#| label: install
+#| eval: false
+# install.packages("remotes")
+remotes::install_github("jcapellan/ggcarto")
+install.packages(c("sf", "dplyr", "patchwork", "RColorBrewer", "viridisLite",
+                   "colorspace"))
+```
+
+```{r}
+#| label: libraries
+library(ggcarto)
+library(ggplot2)
+library(sf)
+library(dplyr)
+library(patchwork)
+theme_set(theme_ggcarto(base_size = 12, legend = "right"))
+```
+
+### The data: the counties of the Northeast
+
+ggcarto ships `northeast_counties`: an sf object with the 217 counties of the
+Census Bureau's Northeast region and a handful of variables from the American
+Community Survey 2015–2019 [@acs2019], compiled from the usdata package
+[@usdata]. It is already projected (an Albers equal-area conic centred on the
+region), so `geom_sf()` draws it correctly with no further work.
+
+```{r}
+#| label: data
+data(northeast_counties)
+cty <- northeast_counties
+cty
+```
+
+The variables were chosen because they misbehave in different, instructive
+ways:
+
+| Variable | What it is | Shape |
+|---|---|---|
+| `unemployment` | unemployment rate, % | nearly symmetric — the easy case |
+| `median_income` | median household income, $ | moderately right-skewed |
+| `pop` | population | a heavy right tail: New York City's boroughs against rural Maine |
+| `pct_bachelors` | adults with a bachelor's degree, % | wide, lumpy: metro against rural |
+| `pct_poverty` | people below the poverty line, % | 49 counties missing |
+
+```{r}
+#| label: shapes
+#| fig-height: 5
+cty |>
+  st_drop_geometry() |>
+  select(unemployment, median_income, pop, pct_bachelors, pct_poverty) |>
+  tidyr::pivot_longer(everything()) |>
+  ggplot(aes(value)) +
+  geom_histogram(bins = 40, fill = "grey40") +
+  facet_wrap(~ name, scales = "free", ncol = 5) +
+  theme_minimal(10) +
+  theme(axis.title = element_blank())
+```
+
+::: {.callout-note}
+## sf is not required by ggcarto
+Every scale in this document works identically with `geom_polygon()`,
+`geom_tile()` or `geom_point()`. Nothing in ggcarto depends on the geometry
+layer; sf is used here because it is what most people map with.
+:::
+
+`theme_ggcarto()` is the package's map theme -- warm paper, a navy title,
+grey annotation, no axes, legend under the map -- and it is set as the
+default above. One helper, so that each map is one line and side-by-side
+maps get a compact legend underneath:
+
+```{r}
+#| label: helper
+ne_map <- function(var = "unemployment", data = cty, title = NULL) {
+  ggplot(data) +
+    geom_sf(aes(fill = .data[[var]]), colour = "white", linewidth = 0.1) +
+    labs(title = title, fill = NULL) +
+    theme(legend.key.height = unit(1.1, "lines"),
+          plot.title = element_text(size = 11))
+}
+
+bottom_legend <- function(rows = 2) {
+  list(theme(legend.position = "bottom", legend.text = element_text(size = 8),
+             legend.key.size = unit(0.9, "lines")),
+       guides(fill = guide_legend(nrow = rows, byrow = TRUE, reverse = TRUE)))
+}
+```
+
+## The problem, in one picture
+
+Here is county unemployment drawn the way ggplot2 draws it if you do nothing:
+
+```{r}
+#| label: default
+#| fig-height: 5
+ne_map(title = "Unemployment rate: ggplot2 defaults")
+```
+
+It is not wrong. It is just hard to *use*. Try to answer "which counties are
+above 6%?" from that legend. The ramp is smooth, so any two nearby counties
+look the same; the darkest blue is the *lowest* value, which is backwards from
+what most readers expect; and there is no way to state what a colour *means*.
+
+Now the same data with five classes, a palette made for maps, and labels that
+read like sentences:
+
+```{r}
+#| label: fixed-classes
+#| fig-height: 5
+ne_map(title = "Unemployment rate: five classes") +
+  scale_fill_intervals("brewer::YlOrRd", style = "fisher", n = 5,
+                       labels = label_map(style = "interval", suffix = "%",
+                                          digits = 1, open = TRUE),
+                       na.value = "grey85")
+```
+
+Everything in this document is about the decisions hiding inside that second
+call: how many classes, where the breaks go, which palette, how the legend is
+worded, what happens to a county with no data. None of these are cosmetic.
+Each one changes what a reader will conclude.
+
+## Why maps are not charts
+
+### Colour is a weak channel
+
+In a scatterplot, *position* carries the number. Our visual system judges
+position along a common scale very accurately: in Cleveland and McGill's
+experiments, position was the most accurately decoded of all the "elementary
+perceptual tasks", and colour saturation and shading were the least
+[@cleveland1984]. Bertin made the same point from the design side: of the visual
+variables available to a map, only *size* and *value* (lightness) are reliably
+read as ordered quantities, and lightness supports only a handful of
+distinguishable steps [@bertin1983].
+
+On a choropleth map, colour is the *only* channel carrying the number. Position
+is spent on geography. So the map is asking the reader to do the one perceptual
+task they are worst at, and it should ask as little as possible.
+
+### Classing makes the map answerable
+
+That is the argument for classing. A continuous ramp promises precision — every
+county its own shade — that the reader cannot extract. Five or six classes turn
+the map into a set of yes/no questions the eye *can* answer ("is this county in
+the darkest class?"), and turn the legend into something a reader can hold in
+memory: "dark red means 6% or more".
+
+Cartography textbooks converge on five to seven classes for a single-hue
+scheme [@slocum2009; @dent2009; @brewer2016]. Fewer than three shows no
+pattern; more than seven and readers can no longer match a colour on the map
+back to the legend. With a diverging scheme, use an odd number so there is a
+neutral middle class.
+
+::: {.callout-tip}
+## When *not* to class
+Continuous ramps are fine when colour is a secondary channel (a heatmap where
+position already encodes the cells, a scatterplot coloured by a third
+variable), when the audience is reading *shape* rather than *values* (a raster
+of elevation), or when the map is interactive and the value appears on hover.
+ggcarto's `scale_fill_cont()` is there for those cases.
+:::
+
+### Why the breaks matter so much
+
+Classing throws information away, and where the breaks fall decides which
+information survives. Here are four maps of the same variable with the same
+number of classes and the same palette. Only the classification method differs.
+
+```{r}
+#| label: four-methods
+#| fig-height: 8
+methods <- c("equal", "quantile", "fisher", "sd")
+maps4 <- lapply(methods, function(st) {
+  ne_map("pct_bachelors", title = paste0('style = "', st, '"')) +
+    scale_fill_intervals("brewer::YlGnBu", style = st, n = 5,
+                         labels = label_map(style = "interval", digits = 0,
+                                            open = TRUE, suffix = "%")) +
+    bottom_legend()
+})
+wrap_plots(maps4, ncol = 2)
+```
+
+Four honest maps, four different stories. Equal intervals says most of the
+Northeast is in the middle and only a ring of suburban counties stands out.
+Quantiles say the Boston–New York–Philadelphia corridor is one thing and
+everything else is another. Fisher's natural breaks land in between. Standard
+deviations centre the story on "above or below the regional average".
+
+So the classification is an *argument*, not a setting, and you should be able
+to say which question your map answers [@monmonier2018]:
+
+| The question the map answers | Method that fits |
+|---|---|
+| Where are the high (or low) values? | natural breaks (`fisher`, `jenks`) |
+| How is this spread across the region? Which counties are in the top fifth? | `quantile` |
+| Which counties are above the average, and by how much? | `sd` |
+| Is this above the policy threshold? | fixed breaks you choose |
+| How does this year compare with last year? | the *same* fixed breaks both years |
+| Where are the extreme cases in a heavy-tailed variable? | `headtails`, `log` |
+
+## Inspect: see the distribution and the breaks
+
+### What a break is
+
+A class interval method takes a numeric variable and returns `n + 1` cut points
+that split it into `n` classes. In ggcarto that is one function:
+
+```{r}
+#| label: compute-breaks
+compute_breaks(cty$unemployment, style = "quantile", n = 5)
+compute_breaks(cty$unemployment, style = "fisher",   n = 5)
+compute_breaks(cty$unemployment, style = "equal",    n = 5)
+```
+
+Every style is also available as a *factory* — `breaks_quantile(5)` returns a
+function that computes those breaks from whatever data it is given — so a style
+can be handed to a scale and evaluated later, when the scale finally sees the
+data:
+
+```{r}
+#| label: factories
+f <- breaks_jenks(6)
+f
+f(cty$unemployment)
+```
+
+`map_styles_info()` is the in-package cheat sheet:
+
+```{r}
+#| label: styles-info
+knitr::kable(map_styles_info())
+```
+
+### Seeing where the breaks fall
+
+The best way to understand a method is to draw its breaks on the histogram of
+the variable. `plot_breaks()` does that for one method and `compare_breaks()`
+for several, over the same histogram, with each class shaded and annotated
+with its count:
+
+```{r}
+#| label: compare-breaks-unemp
+#| fig-height: 8
+compare_breaks(cty$unemployment,
+               c("equal", "pretty", "quantile", "fisher", "sd", "headtails"),
+               n = 5)
+```
+
+Read the panels top to bottom.
+
+**Equal interval** (`equal`) slices the *range* into equal widths. It is honest
+about magnitude — one step in colour is one step in value — and it is what a
+reader assumes a legend means unless told otherwise. On a nearly symmetric
+variable like this one it works; on a skewed one it does not, as the
+population section shows. `pretty` is the same idea with the cut points rounded
+to numbers people can read (4, 6, 8 ...), which is why it is ggplot2's own
+default for binned scales.
+
+**Quantile** (`quantile`) puts equal *counts* in each class. Every class is
+populated, the map is visually balanced, and the legend can be read as "top
+fifth of counties". The cost is that class widths become unequal and the map
+hides that. In Brewer and Pickle's map-reading experiment with 56 subjects and
+nine series of US mortality maps, quantiles nonetheless produced the most
+accurate answers to general map-reading questions, and "the advantages of
+careful optimization procedures in choropleth classification seem to offer no
+benefit over the simpler quantile method" [@brewer2002].
+
+**Natural breaks** (`fisher`, `jenks`, and the clustering variants `kmeans`,
+`hclust`, `bclust`) look for gaps in the data. Formally they choose breaks that
+minimise the variance *within* classes and maximise it *between* them
+[@jenks1967; @jenks1971]. `fisher` is Walter Fisher's exact dynamic-programming
+solution to that problem [@fisher1958]; `jenks` is George Jenks's iterative
+approximation of it, the one built into GIS software. They give near-identical
+results; `fisher` is faster and is the one to use. Natural breaks follow the
+data's own structure, which is why they are the sensible default for a single
+map. The two costs are that the cut points look arbitrary (4.3%, 5.1%) and are
+specific to *this* dataset, so two maps classed by natural breaks are not
+comparable [@coulson1987; @evans1977].
+
+**Standard deviation** (`sd`) puts the breaks at the mean and at ±1, ±2 ... SD
+from it. Use it when the question is "above or below average, and by how
+much", and pair it with a diverging palette so the mean is the neutral colour.
+It only makes sense for roughly symmetric data — which unemployment is.
+
+**Head/tail breaks** (`headtails`) is for heavy-tailed variables — populations,
+incomes, anything where a few areas dwarf the rest [@jiang2013]. It splits at
+the mean, keeps the values above the mean (the "head"), splits that at *its*
+mean, and repeats until the head is no longer a minority. It chooses its own
+class count, and on a symmetric variable it stops early. That is the method
+telling you it is the wrong tool for these data; it comes into its own on
+population, below.
+
+Three more, for completeness: `box` uses the quartiles and the 1.5·IQR
+fences from a boxplot, so outliers get their own classes; `dpih` uses
+kernel-density bandwidth selection to choose histogram bins [@wand1997];
+`maximum` splits at the widest empty gaps in the sorted values. All of these
+except `equal`, `pretty`, `quantile`, `sd`, `log`, `geometric` and `unique` are
+computed by the **classInt** package [@classint], which is the reference
+implementation in R.
+
+::: {.callout-note}
+## Exact, and the same every time
+classInt takes a shortcut on large vectors: above 3,000 values it computes
+`fisher` and `jenks` on a random 10% sample, and the sample is drawn from the
+session's random number generator, so a map of the 3,100 US counties could
+class differently every time it was drawn. ggcarto turns that off. Fisher is
+computed exactly at any size (about 0.3 s for 10,000 values), and every style
+with a random component (`kmeans`, `bclust`) is seeded. `?compute_breaks`
+documents the details and the `large_n` argument that restores the shortcut,
+reproducibly, if you need it.
+:::
+
+### Heavy tails: population
+
+County population is the textbook heavy-tailed variable — the median county in
+the region has 100,000 people and Kings County (Brooklyn) has 2.6 million.
+Watch equal intervals and quantiles fail in opposite ways, and the
+transform-aware styles cope:
+
+```{r}
+#| label: compare-breaks-pop
+#| fig-height: 8
+compare_breaks(cty$pop, c("equal", "quantile", "fisher", "headtails", "log", "geometric"),
+               n = 5, log_x = TRUE)
+```
+
+On a log axis the equal-interval breaks all pile up at the right — four of the
+five classes hold a handful of counties between them. `log` puts breaks at 1,
+2, 5 per decade; `geometric` uses a constant ratio between breaks; `headtails`
+stops when the tail stops. On the map:
+
+```{r}
+#| label: pop-maps
+#| fig-height: 4.6
+p1 <- ne_map("pop", title = 'style = "equal" (useless)') +
+  scale_fill_intervals("viridis::mako", style = "equal", n = 5, reverse = TRUE,
+                       labels = label_map(style = "interval", big.mark = ",")) +
+  bottom_legend(3)
+p2 <- ne_map("pop", title = 'style = "log"') +
+  scale_fill_intervals("viridis::mako", style = "log", n = 6, reverse = TRUE,
+                       labels = label_map(style = "interval", big.mark = ",")) +
+  bottom_legend(3)
+p1 | p2
+```
+
+## Choose: how many classes?
+
+There is no optimal number of classes. There is a trade-off between four
+things: how faithfully the classes reproduce the distribution (*fit*), whether
+every class has enough counties in it to be worth a colour (*balance*),
+whether the break values are far enough apart to mean anything (*separation*),
+and how many ordered colours a reader can tell apart (*perception*).
+`class_guide()` computes all four for every candidate count and applies a
+small set of stated rules — different rules for different families of method —
+to make a suggestion. It says *suggested*, not *optimal*, on purpose.
+
+```{r}
+#| label: class-guide
+g <- class_guide(cty$pct_bachelors, style = "fisher")
+g
+```
+
+The *fit* column is the goodness of variance fit, $1 - SSW/SST$, the quantity
+Jenks and Caspall proposed for exactly this purpose [@jenks1971]: 0 for one
+class, 1 when every class is constant. The rules for a natural-breaks method
+are: a candidate needs every class populated; take the smallest count whose
+fit is at least 0.80 and whose gain to the next count is under 0.05 (where the
+curve flattens); step down if that leaves a class with under 2% of the
+counties and little fit is lost; never go past seven when a seven-or-fewer
+solution is close. `?class_guide` states them all, and `summary()` and
+`plot()` show the numbers behind them.
+
+```{r}
+#| label: class-guide-plot
+#| fig-height: 5
+plot(g)
+```
+
+```{r}
+#| label: class-guide-balance
+#| fig-height: 4
+plot(g, type = "balance")
+```
+
+The rules are method-specific because the methods are. For `quantile` the
+classes are balanced by construction, so fit is beside the point; the guide
+instead checks whether adding classes forces breaks so close together that the
+legend draws distinctions the data cannot support. For `equal` it counts the
+classes the skew has emptied. For `headtails` it reports the count the method
+chose and why, because `n` is not part of that method. For `fixed` it declines
+to recommend anything: the thresholds are yours.
+
+```{r}
+#| label: class-guide-others
+class_guide(cty$pop, style = "equal")
+class_guide(cty$pop, style = "headtails")
+```
+
+::: {.callout-important}
+## A suggestion, not an answer
+`class_guide()` encodes the conventional trade-offs and shows its working. It
+does not know what your map is *for*. If the policy threshold is 10%, use a
+break at 10%. If the map will sit next to last year's, use last year's breaks.
+The guide is where to start the argument, not where to end it.
+:::
+
+## Classify: the numbers behind the legend
+
+The guide suggested four classes for the share of graduates and offered five
+as a defensible alternative. For a map whose point is the gradient from rural
+to metropolitan counties, the extra class is worth the extra legend line, so
+the rest of this section uses five — which is the kind of judgement the guide
+leaves to you. Once you have a method and a count, `class_summary()` gives the
+classes as a table: the bounds, the label the legend will carry, and how many
+counties fall in each. It uses the same break engine as the scales, so what
+it reports is what the map will draw.
+
+```{r}
+#| label: class-summary
+class_summary(cty$pct_bachelors, "fisher", 5)
+```
+
+And `plot_breaks()` puts those classes on the histogram:
+
+```{r}
+#| label: plot-breaks
+#| fig-height: 3.4
+plot_breaks(cty$pct_bachelors, "fisher", 5)
+```
+
+### Where does a value *on* the break go?
+
+A value of exactly 30 with a break at 30 has to go somewhere. ggplot2's binned
+scales put it in the class *below* — the classes are `(a, b]` — and so does
+ggcarto by default. classInt and tmap default to the other convention,
+`[a, b)`. It rarely matters for continuous rates; it matters a great deal for
+integer data and for policy thresholds, where "10 and above" should mean what
+it says. The `closure` argument makes the choice explicit, and `class_summary()`
+shows the consequence:
+
+```{r}
+#| label: closure
+x <- c(1, 5, 10, 10, 10, 15, 20)
+class_summary(x, breaks = c(0, 10, 20), closure = "right")$n   # 10 goes below
+class_summary(x, breaks = c(0, 10, 20), closure = "left")$n    # 10 goes above
+```
+
+For counts — 0, 1, 2, 3 ... — `as_count = TRUE` goes further: breaks are
+rounded to whole numbers, classes are left-closed, and the labels read the way
+a count legend should, "0 to 4", "5 to 9", never "0 to 5", "5 to 10":
+
+```{r}
+#| label: as-count
+set.seed(1)
+k <- rpois(300, 3)
+class_summary(k, "quantile", 4, as_count = TRUE)
+```
+
+### Fixed breaks and comparability
+
+When a map will be compared with another map — this year against last year,
+one state against another, one outcome against a related outcome — the breaks
+should be the *same* on both. Brewer and Pickle found that matched legends
+across a series increased map-comparison accuracy by roughly 28%
+[@brewer2002]. The same applies when the breaks carry meaning outside the data
+(a poverty line, a regulatory threshold, a round number the reader will
+remember).
+
+Both cases are `breaks =`:
+
+```{r}
+#| label: fixed-breaks
+#| fig-height: 5
+ne_map(title = "Unemployment rate: round-number breaks") +
+  scale_fill_intervals("brewer::YlOrRd", breaks = c(0, 3, 4, 5, 6, 10),
+                       labels = label_map(style = "interval", suffix = "%",
+                                          open = TRUE),
+                       na.value = "grey85")
+```
+
+A working rule that survives most projects: run `class_guide()` and
+`class_summary()` with `fisher` to see where the data's own gaps are, then
+round those cut points to numbers a reader can repeat out loud, and use the
+rounded set as fixed breaks. You get natural breaks' fit and a legend that
+makes sense.
+
+### The trap in plain ggplot2, and why ggcarto exists
+
+ggplot2 has a binned scale, `scale_fill_binned()`, and it accepts a `breaks`
+function. So you would expect this to give quantile classes:
+
+```{r}
+#| label: trap
+p <- ggplot(cty, aes(pct_bachelors, median_income, colour = unemployment)) +
+  geom_point() +
+  scale_colour_binned(breaks = breaks_quantile(5))
+b <- ggplot_build(p)
+b$plot$scales$get_scales("colour")$get_breaks()
+compute_breaks(cty$unemployment, "quantile", 5)
+```
+
+It does not. ggplot2 calls a binned scale's `breaks` function with the scale
+*limits* — two numbers, the minimum and maximum — not with the data. Given two
+numbers, every data-driven algorithm collapses to equal intervals, and nothing
+warns you. The same trap catches a function passed as `limits`: it, too, sees
+only the two endpoints, so a quantile-based trim would trim the wrong thing.
+ggcarto's scales are built on small ggplot2 subclasses that keep the trained
+values and hand the break and limit functions the real distribution. That one
+fix is the reason the package exists; the rest is ergonomics around it.
+
+## Map: the map-shaped details
+
+### Outliers: squish, don't drop
+
+ggplot2's continuous scales, when given `limits`, turn any value outside them
+into `NA` and draw it in the missing-value colour. On a map that is the wrong
+message: a county with an extreme value is not a county with no data. The
+cartographic convention is to *clamp* — outliers get the colour of the end
+class and the legend says "$110,000 and above". ggcarto's scales default to
+`oob = "squish"` for this reason, and `trim_limits()` gives you a principled
+way to choose limits that leave the outliers out of the ramp without dropping
+them from the map:
+
+```{r}
+#| label: squish
+#| fig-height: 4.2
+p1 <- ne_map("median_income", title = "limits = full range") +
+  scale_fill_cont("viridis::inferno", reverse = TRUE,
+                  labels = label_map(prefix = "$", scale = 1/1000, suffix = "k"))
+p2 <- ne_map("median_income", title = "limits = trim_limits(0.02, 0.98), oob = squish") +
+  scale_fill_cont("viridis::inferno", reverse = TRUE,
+                  limits = trim_limits(0.02, 0.98),
+                  labels = label_map(prefix = "$", scale = 1/1000, suffix = "k"))
+(p1 | p2) & theme(legend.position = "bottom")
+```
+
+The left map spends the top of its ramp on the four suburban counties above
+$100,000, so the other 213 are squeezed into the lower colours. The right map
+gives the ramp to the bulk of the data and clamps the extremes.
+
+### Diverging data: anchor the midpoint
+
+A diverging palette has two hues meeting at a neutral colour. It is the right
+choice only when the data have a *meaningful middle* — zero change, the
+regional average, 50% of the vote — and the neutral colour must sit exactly on
+that value [@brewer1994]. Two things go wrong otherwise: the palette's midpoint
+drifts to the middle of the data range, and unequal ranges either side make one
+hue look more intense than the other for the same distance from the middle.
+
+`midpoint =` fixes the first; `symmetric_limits()` fixes the second. With
+classed data, `midpoint` also nudges a class break to sit exactly on it, so the
+neutral colour is a class boundary rather than the middle of a class.
+
+```{r}
+#| label: diverging
+#| fig-height: 4.2
+regional <- weighted.mean(cty$unemployment, cty$pop)
+p1 <- ne_map(title = "Unemployment: no anchor") +
+  scale_fill_cont("brewer::RdBu", reverse = TRUE)
+p2 <- ne_map(title = sprintf("midpoint = regional rate (%.1f%%), symmetric limits", regional)) +
+  scale_fill_intervals("brewer::RdBu", reverse = TRUE, n = 6,
+                       midpoint = regional, limits = symmetric_limits(regional),
+                       labels = label_map(style = "interval", suffix = "%",
+                                          digits = 1)) +
+  bottom_legend()
+(p1 | p2) & theme(legend.position = "bottom")
+```
+
+On the left, the neutral colour lands at about 5.6% — the middle of the data
+range — so a county with the regional rate reads as "better than average". On
+the right, white is the regional rate and the reds and blues are equal
+distances from it.
+
+### Missing data gets its own key
+
+An area with no data should be a neutral colour that cannot be mistaken for a
+low value, and the legend should say so [@brewer2016]. `na.value` sets the
+colour. For categorical and ordinal scales ggplot2 draws the key itself and
+`na.label` names it. Its binned and continuous legends have no slot for an NA
+key, so for interval and continuous scales add `na_key()` to the plot; it
+draws a filled square under the main legend and nothing on the map. Poverty is
+missing for 49 of the 217 counties, which is what a real map looks like:
+
+```{r}
+#| label: missing
+#| fig-height: 5
+ne_map("pct_poverty", title = "Poverty rate: the missing counties have a legend entry") +
+  scale_fill_intervals("hcl::Batlow", style = "quantile", n = 5, na.value = "grey85",
+                       labels = label_map(style = "interval", digits = 1, suffix = "%")) +
+  na_key("No data (49 counties)", fill = "grey85")
+```
+
+### Legend labels that read like a legend
+
+`label_map()` returns a labelling function. `style = "interval"` turns `n + 1`
+break points into `n` range labels; `open = TRUE` writes the first and last as
+"Under x" and "x and above" rather than showing the data extremes; `prefix`,
+`suffix`, `big.mark` and `digits` do what they say. It works in any ggplot2
+scale, not only ggcarto's.
+
+```{r}
+#| label: labels
+label_map(suffix = "%", digits = 0)(c(2.5, 7.5, 12.5))
+label_map(style = "interval", suffix = "%", digits = 0)(c(0, 5, 10, 31))
+label_map(style = "interval", suffix = "%", digits = 0, open = TRUE)(c(0, 5, 10, 31))
+label_map(prefix = "$", big.mark = ",", scale = 1/1000, suffix = "k")(c(12500, 48000))
+```
+
+Two conventions worth following. Round: nobody needs 12.93% in a legend
+[@brewer2016]. And when the data extremes are not meaningful numbers, open the
+end classes; "Under 5%" is a fact about the world, "1.2% to 5%" is a fact about
+the dataset.
+
+## Colour
+
+### Three kinds of palette
+
+Brewer's colour-use guidelines, the basis of ColorBrewer, sort palettes by the
+kind of data they encode [@brewer1994; @harrower2003]:
+
+* **Sequential** — one hue, light to dark, for ordered data with a low and a
+  high. The lightness ramp does the work; hue is decoration.
+* **Diverging** — two hues meeting at a neutral, for ordered data with a
+  meaningful middle. (See the unemployment map above.)
+* **Qualitative** — distinct hues at similar lightness, for categories with
+  no order. Never for a number.
+
+Ordered categories ("low / medium / high", or classes from an interval scale)
+take a *sequential* palette, not a qualitative one. A rainbow is not a
+sequential palette: its lightness goes up and down, so it creates visual
+boundaries where the data have none and hides real ones, and it is unreadable
+for the roughly 8% of men with red-green colour-vision deficiency
+[@borland2007; @crameri2020].
+
+```{r}
+#| label: palette-kinds
+#| fig-height: 2.6
+op <- par(mfrow = c(1, 3), mar = c(1, 1, 2, 1))
+show_palette("brewer::YlGnBu", 7)
+show_palette("brewer::RdBu", 7)
+show_palette("brewer::Set2", 7)
+par(op)
+```
+
+### Checking a palette
+
+Palettes fail in predictable ways: the palest class vanishes against a white
+page; two adjacent classes are too close to separate on small polygons; a
+red–green scheme collapses for a colour-blind reader; a "diverging" palette has
+no neutral centre. `check_palette()` measures those things — CIELAB lightness
+and colour difference, contrast against the background, and colour-vision
+simulation via the colorspace package [@zeileis2020] — and says what each one
+would do to the map:
+
+```{r}
+#| label: check-palette
+check_palette("brewer::YlGnBu", 5)
+check_palette("brewer::RdYlGn", 7)
+```
+
+`plot_palette()` shows the classes as a colour-blind reader would see them.
+The thing to look for is a boundary between two classes that disappears in one
+of the rows:
+
+```{r}
+#| label: plot-palette
+#| fig-height: 3.6
+plot_palette("brewer::RdYlGn", 7)
+```
+
+### Where good palettes come from
+
+Nobody needs to design a palette from scratch. Several R packages carry
+palettes that have been designed and tested, and they differ in what they are
+for:
+
+| Source | Prefix in ggcarto | Roughly how many | What it is |
+|---|---|---|---|
+| grDevices `hcl.colors()` | `hcl::` | 115 | Palettes built in perceptual HCL space, shipped with R itself; no dependency [@zeileis2020] |
+| RColorBrewer | `brewer::` | 35 | Cynthia Brewer's ColorBrewer schemes, designed for maps, tested for colour-blind safety and print [@harrower2003; @rcolorbrewer] |
+| viridisLite | `viridis::` | 8 | viridis, magma, plasma, inferno, cividis, mako, rocket, turbo: perceptually uniform, colour-blind safe [@smith2015; @viridislite] |
+| cols4all | `c4a::` | ~700 | The palette library behind tmap, each scored for colour-blind friendliness and contrast [@cols4all] |
+| paletteer | any `package::name` | ~2,500 | An index of palettes from dozens of other packages (scico, rcartocolor, MetBrewer, wesanderson ...) [@paletteer] |
+
+ggcarto does not carry palettes of its own. `as_palette()` resolves any of the
+above through one `"source::name"` syntax and returns a function of `n`:
+
+```{r}
+#| label: as-palette
+as_palette("brewer::YlGnBu")(5)
+as_palette("hcl::Zissou 1", reverse = TRUE)(5)
+as_palette(c("#f7fbff", "#08306b"))(5)      # your own colours, interpolated
+palette_sources()                            # which sources are installed
+```
+
+`map_palettes()` searches them:
+
+```{r}
+#| label: map-palettes
+map_palettes("div", source = "brewer")
+head(map_palettes(pattern = "blue"))
+```
+
+### Three palette tricks
+
+**Trim the washed-out end.** The lightest colour of most sequential ramps is
+nearly white and vanishes against a white page or a white county border.
+`range = c(0.15, 1)` drops it — `check_palette()` will tell you when you need
+to.
+
+**Reverse when the ramp runs the wrong way.** Dark should mean *more* of
+whatever the map is about. Several viridis palettes are light-at-the-top;
+`reverse = TRUE`.
+
+**Even or by value.** With classed data, `interpolate = "even"` (the default)
+gives each class an evenly spaced colour from the ramp — what GIS software and
+tmap do, and what makes classes distinguishable. `interpolate = "value"` places
+each class's colour at its position along the data range, so a wide class sits
+further along the ramp; it is more faithful to magnitude and less legible.
+
+```{r}
+#| label: palette-tricks
+#| fig-height: 4.2
+p1 <- ne_map("median_income", title = 'range = c(0, 1): first class is white') +
+  scale_fill_intervals("brewer::Blues", style = "fisher", n = 5,
+                       labels = label_map(style = "interval", prefix = "$",
+                                          scale = 1/1000, suffix = "k", digits = 0)) +
+  bottom_legend()
+p2 <- ne_map("median_income", title = 'range = c(0.2, 1)') +
+  scale_fill_intervals("brewer::Blues", style = "fisher", n = 5, range = c(0.2, 1),
+                       labels = label_map(style = "interval", prefix = "$",
+                                          scale = 1/1000, suffix = "k", digits = 0)) +
+  bottom_legend()
+p1 | p2
+```
+
+## Diagnose: read the decisions back off the map
+
+A finished map shows colours. It does not show that the top class holds six
+counties, that 4% of the values were squished into the end classes, that the
+neutral colour sits at a midpoint outside the data, or that the missing-data
+grey is a near match for class 2. `diagnose_map()` takes the finished ggplot,
+finds the ggcarto scale and the variable behind it, and reports all of that —
+with warnings phrased as what a reader would get wrong, not as faults:
+
+```{r}
+#| label: diagnose
+final <- ne_map("median_income", title = "Median household income") +
+  scale_fill_intervals("brewer::YlGnBu", style = "fisher", n = 5,
+                       range = c(0.15, 1), na.value = "grey85",
+                       limits = trim_limits(0.02, 0.98),
+                       labels = label_map(style = "interval", prefix = "$",
+                                          big.mark = ",", digits = 0, open = TRUE))
+diagnose_map(final)
+```
+
+```{r}
+#| label: final-map
+#| fig-height: 5
+final
+```
+
+The same diagnosis is available before you build anything, from a scale and a
+vector: `diagnose_scale(scale_fill_intervals(...), cty$median_income)`. Here is
+what it says about a map that gets three things wrong at once — a diverging
+palette with no midpoint, too many classes, and a missing-data colour that
+looks like a class:
+
+```{r}
+#| label: diagnose-bad
+diagnose_scale(scale_fill_intervals("brewer::RdBu", "quantile", n = 8,
+                                    na.value = "#d1e5f0"),
+               cty$pct_poverty)$warnings
+```
+
+## One engine, five mappings
+
+Everything so far used `scale_fill_intervals()`. It is one of five ways to
+read a variable, and all five come from the same function, `scale_map()`;
+`type` is the only thing that changes. This is the idea ggcarto borrows from
+tmap [@tennekes2018]: *how a variable is mapped* is a choice you should be able
+to change with one word, without rewriting the rest of the call.
+
+| `type` | What it does | Shorthand |
+|---|---|---|
+| `"continuous"` | smooth ramp | `scale_fill_cont()` |
+| `"intervals"` | classed into `n` bins by `style` | `scale_fill_intervals()` |
+| `"categorical"` | unordered categories, qualitative palette | `scale_fill_cat()` |
+| `"ordinal"` | ordered categories, sequential palette | `scale_fill_ord()` |
+| `"rank"` | colour by position in the distribution | `scale_fill_rank()` |
+
+`palette`, `limits`, `oob`, `reverse`, `range`, `na.value`, `labels`
+and `name` mean the same thing in all five.
+
+```{r}
+#| label: five-types
+#| fig-height: 10
+cty$income_ord <- cut(cty$median_income, c(0, 50000, 65000, 85000, Inf),
+                      labels = c("Under $50k", "$50k to $65k", "$65k to $85k", "$85k and above"))
+maps5 <- list(
+  ne_map("median_income", title = "continuous") +
+    scale_fill_map("hcl::Batlow", type = "continuous",
+                   labels = label_map(prefix = "$", scale = 1/1000, suffix = "k")),
+  ne_map("median_income", title = "intervals") +
+    scale_fill_map("hcl::Batlow", type = "intervals", style = "fisher", n = 5,
+                   labels = label_map(style = "interval", prefix = "$",
+                                      scale = 1/1000, suffix = "k", digits = 0)) +
+    bottom_legend(),
+  ne_map("income_ord", title = "ordinal") +
+    scale_fill_map("hcl::Batlow", type = "ordinal") + bottom_legend(1),
+  ne_map("state", title = "categorical") +
+    scale_fill_map("brewer::Set3", type = "categorical") + bottom_legend(2),
+  ne_map("median_income", title = "rank") +
+    scale_fill_map("hcl::Batlow", type = "rank",
+                   labels = label_map(prefix = "$", scale = 1/1000, suffix = "k")) +
+    bottom_legend(1)
+)
+wrap_plots(maps5, ncol = 2) & theme(legend.position = "bottom",
+                                     legend.text = element_text(size = 8))
+```
+
+The **rank** type deserves a word. It colours each county by where it sits in
+the distribution — the median county gets the middle colour whatever its value
+— which makes it immune to outliers and skew. It is, in effect, a quantile
+classification with as many classes as there are counties. Its legend keys are
+placed at quantiles of the data, because a colour bar with evenly spaced
+*values* would put its ticks in the wrong places.
+
+## Two variables on one map: bivariate choropleths
+
+### The idea, and its limits
+
+A bivariate choropleth colours each area by two variables at once. Each
+variable is classed into `n` intervals, giving `n × n` combinations, and each
+combination gets one colour from an `n × n` grid. The technique dates to Judy
+Olson's work at the Census Bureau in the 1970s [@olson1975]; its modern form —
+a 3 × 3 grid built from two sequential hues that darken together — was set out
+by Joshua Stevens and has become the standard in newsroom cartography
+[@stevens2015; @leonowicz2006].
+
+The point of a bivariate map is *relationship*: where are both variables high,
+where is one high and the other low. It is a map of a correlation and its
+exceptions. It is not a good way to read either variable on its own, and nine
+colours is close to the limit of what a reader can match back to a legend, so
+3 × 3 is the convention, 4 × 4 is readable, and more is not [@stevens2015].
+
+### Palette
+
+ggcarto ships two kinds of preset. *Corner* palettes are defined by four
+colours — both low (near white), `x` high, `y` high, both high (dark) — and
+filled in between, so they work at any `n`. *Grid* palettes are the complete
+3 × 3 schemes Joshua Stevens published for bivariate maps [@stevens2015],
+the ones the biscale package popularised (`"stevens-purpleblue"` and
+friends), resampled when `n` is not 3. You can also pass four corner colours
+of your own, a full `k × k` grid of colours, two sequential ramps to multiply
+the way a printer overlays inks, or, with cols4all installed, one of its
+bivariate palettes as `"c4a::<name>"`.
+
+```{r}
+#| label: bipal
+bivariate_palette("blue-red", n = 3)
+names(bivariate_palettes())
+```
+
+```{r}
+#| label: bipal-all
+#| fig-height: 6
+plot_bivariate_palettes()
+```
+
+```{r}
+#| label: bipal-gallery
+#| fig-height: 2.6
+wrap_plots(
+  legend_bivariate("blue-red", 3, "x", "y", text_size = 8),
+  legend_bivariate("purple-green", 3, "x", "y", text_size = 8),
+  legend_bivariate(c("#f3f3f3", "steelblue", "firebrick", "#2b1b2b"), 4,
+                   "x", "y", text_size = 8),
+  legend_bivariate(list(x = "brewer::Blues", y = "brewer::Reds"), 3,
+                   "x", "y", text_size = 8),
+  nrow = 1
+)
+```
+
+### Building the map: classify, colour, legend
+
+Three steps. First, class both variables into one factor. Quantile breaks are
+the usual choice because they guarantee every row and column of the legend has
+counties in it — an empty row in a 3 × 3 legend is confusing. Income is
+skewed, so it is classed on a log scale: `trans_x = "log10"` does that, and the
+break points are still reported in dollars, so the legend needs no
+back-transforming by hand.
+
+```{r}
+#| label: bi-classify
+cty$bi <- classify_bivariate(cty$median_income, cty$pct_bachelors, n = 3,
+                             style_x = "quantile", style_y = "quantile",
+                             trans_x = "log10")
+table(cty$bi)
+attr(cty$bi, "breaks_x")
+attr(cty$bi, "breaks_y")
+```
+
+Second, colour the map. `scale_fill_bivariate()` keeps all nine classes even if
+one is empty, so map and legend always agree, and it draws no legend of its
+own.
+
+Third, the legend. A ggplot2 legend is a column of keys; a bivariate legend has
+to be a grid, so `legend_bivariate()` draws it as a small ggplot and
+`inset_legend()` places it on the map. Passing `classes =` hands it the break
+points — already in the original units; `ends = FALSE` labels only the
+interior cut points, which is cleaner.
+
+```{r}
+#| label: bi-map
+#| fig-height: 6
+bimap <- ggplot(cty) +
+  geom_sf(aes(fill = bi), colour = "white", linewidth = 0.1) +
+  scale_fill_bivariate("purple-green", n = 3) +
+  labs(title = "Income and education, Northeast counties") +
+  theme(legend.position = "none", plot.title = element_text(size = 11, face = "bold"))
+
+fmt_k <- function(x) paste0("$", round(x / 1000), "k")
+leg <- legend_bivariate("purple-green", classes = cty$bi,
+                        style = "diamond", ends = FALSE, text_size = 8,
+                        xlab = "Median income", ylab = "% with a degree",
+                        labels = function(x) ifelse(x > 1000, fmt_k(x), paste0(round(x), "%")),
+                        background = alpha("white", 0.9))
+
+inset_legend(bimap, leg, position = "topleft", width = 0.32)
+```
+
+Dark teal on this map is "high income *and* many graduates": the suburbs of
+Boston, New York and Philadelphia, 52 counties. Pale grey is the opposite
+corner, 55 counties of rural Pennsylvania, upstate New York and northern Maine.
+The two off-diagonal corners are nearly empty — two counties are high-income
+with few graduates (Salem, NJ and Adams, PA), and one is low-income with many
+(Windham, VT) — and that near-emptiness *is* the finding: in this region income
+and education move together, and the map is a map of the exceptions. They sit
+in the in-between cells: the mid-income, high-education college counties
+(Tompkins, NY, home of Cornell, is one) in light green, and the
+higher-income, lower-education commuter counties in light purple. That is
+exactly what a single-variable map cannot show.
+
+`counts = TRUE` writes the number of counties in every cell of the legend, and
+an empty or nearly empty cell is the first thing to look for:
+
+```{r}
+#| label: bi-counts
+#| fig-height: 3
+legend_bivariate("purple-green", classes = cty$bi, counts = TRUE,
+                 xlab = "Income", ylab = "% degree", ends = FALSE,
+                 labels = function(x) ifelse(x > 1000, fmt_k(x), paste0(round(x), "%")))
+```
+
+### Legend layouts
+
+Two layouts. `style = "square"` has an arrowed axis on each side and reads like
+a chart. `style = "diamond"` is the square rotated 45°, both-low at the bottom
+and both-high at the top; values run along the two lower edges, or
+`corner_labels` puts a short phrase at each corner and drops the numbers
+altogether. The corner-phrase version is the most readable for a general
+audience, because it says what a colour *means* rather than what the numbers
+are.
+
+```{r}
+#| label: bi-legends
+#| fig-height: 3
+wrap_plots(
+  legend_bivariate("blue-red", classes = cty$bi, xlab = "Income", ylab = "% degree",
+                   ends = FALSE, text_size = 9,
+                   labels = function(x) ifelse(x > 1000, fmt_k(x), paste0(round(x), "%"))),
+  legend_bivariate("blue-red", 4, style = "diamond",
+                   xlab = "% Black", ylab = "% Hispanic",
+                   breaks_x = c(0, 5, 20, 50, 95), breaks_y = c(0, 5, 20, 50, 95),
+                   labels = label_map(suffix = "%"), text_size = 9),
+  legend_bivariate("blue-yellow", 3, style = "diamond", text_size = 8,
+                   corner_labels = c("Low income\nfew graduates",
+                                     "High income\nfew graduates",
+                                     "Low income\nmany graduates",
+                                     "High income\nmany graduates")),
+  nrow = 1
+)
+```
+
+## Project defaults
+
+If every map in a report should use the same palettes, set them once.
+`ggcarto_palettes()` sets what the package reaches for when `palette` is not
+given; on ggplot2 4.0 and later, `theme_palettes()` pushes the same choices
+into ggplot2's own default scales so layers you have not styled match the ones
+you have.
+
+```{r}
+#| label: defaults
+#| fig-height: 5
+old <- ggcarto_palettes(seq = "hcl::Batlow", div = "brewer::BrBG", cat = "brewer::Dark2")
+ne_map(title = "No palette argument: uses the project default") +
+  scale_fill_intervals(style = "fisher", n = 5,
+                       labels = label_map(style = "interval", digits = 1, suffix = "%"))
+ggcarto_palettes(seq = old$seq, div = old$div, cat = old$cat)   # restore
+```
+
+## How ggcarto relates to what already exists
+
+ggplot2 and its extensions already cover a lot of this ground. ggcarto exists
+for the part in between.
+
+| Tool | What it does well | What it does not do |
+|---|---|---|
+| **ggplot2** `scale_fill_binned()`, `scale_fill_fermenter()`, `scale_fill_steps()` [@wickham2016] | Binned scales with a stepped colour bar | Breaks and function limits come from the *limits*, so every data-driven classification silently becomes equal intervals; no interval labels; out-of-bounds values are dropped, not squished; no midpoint anchoring for binned scales |
+| **scales** | Breaks and labels for charts (`breaks_pretty()`, `label_dollar()`) | No cartographic classification, no range labels |
+| **classInt** [@classint] | Every classification algorithm, the reference implementation | Only computes the numbers; you still cut the data, build a manual scale and write the legend yourself; samples above 3,000 values |
+| **tmap** [@tennekes2018] | Complete thematic mapping with classification, legends, layout | Its own grammar, not ggplot2; you cannot mix it with ggplot2 layers, themes, facets or patchwork |
+| **biscale** [@biscale] | Bivariate maps in ggplot2, with Stevens's palettes | Bivariate only; its own break styles and palette names |
+| **RColorBrewer, viridis, cols4all, paletteer, rcartocolor, scico** | Palettes | Palettes only, each with its own syntax |
+| **colorspace** [@zeileis2020] | Colour science: HCL, colour-vision simulation, palette assessment | Not about maps or scales |
+| **sf, ggspatial** | Geometry, projections, scale bars, basemaps | Nothing about colour scales |
+| **mapsf, cartography** | Thematic maps in base graphics | Not ggplot2 |
+
+ggcarto is the layer that connects these inside ordinary ggplot2: it fixes the
+binned-scale trap so classInt's algorithms actually work in a ggplot2 scale;
+it reads palettes from every source above through one syntax; it adds the
+map-shaped defaults (squish, midpoint, NA key, range labels); it makes the
+mapping type a single argument, the way tmap does; it does bivariate maps with
+the same break styles and palette syntax as everything else; and — the part
+this version adds — it shows its working, so the classification, the class
+count and the palette can each be inspected, defended and diagnosed.
+
+What it deliberately does not do: geometry (use sf), projections and basemaps
+(use sf and ggspatial), interactivity (use tmap or leaflet), or its own
+palettes (use the ones that have been tested).
+
+## Function reference, in one place
+
+| Function | Purpose |
+|---|---|
+| `scale_fill_map()` / `scale_colour_map()` | The engine; `type` picks the mapping |
+| `scale_fill_intervals()`, `_cont()`, `_cat()`, `_ord()`, `_rank()` | Same engine with `type` fixed |
+| `class_guide()` | Suggest a number of classes, with the reasons and the metrics |
+| `class_summary()` | The classes as a table: bounds, labels, counts |
+| `plot_breaks()`, `compare_breaks()` | The breaks on the histogram, one method or several |
+| `diagnose_map()`, `diagnose_scale()` | The decisions inside a finished scale, with warnings |
+| `check_palette()`, `plot_palette()` | Lightness, distinguishability, colour-vision simulation |
+| `breaks_fisher(n)`, `breaks_quantile(n)`, `breaks_sd()`, `breaks_headtails()`, ... | Break functions; usable in any ggplot2 binned scale |
+| `compute_breaks(x, style, n)` | The numbers, outside ggplot2; exact and reproducible |
+| `map_styles()`, `map_styles_info()` | Which styles exist and what they do |
+| `as_palette()`, `map_palettes()`, `show_palette()`, `palette_sources()` | Palette access |
+| `label_map()` | Legend labels: ranges, open ends, `$`, `%`, thousands |
+| `trim_limits()`, `symmetric_limits()` | Data-driven limits |
+| `na_key()` | A "No data" legend key for interval and continuous scales |
+| `classify_bivariate()`, `scale_fill_bivariate()`, `bivariate_palette()` | Bivariate classes and colours, with per-variable styles and transforms |
+| `legend_bivariate()`, `inset_legend()` | The grid legend and where to put it |
+| `ggcarto_palettes()`, `theme_palettes()` | Project-wide defaults |
+| `theme_ggcarto()`, `ggcarto_colours()` | The map theme used here, and its colours |
+| `bivariate_palettes()`, `plot_bivariate_palettes()` | The bivariate presets, listed and drawn |
+| `northeast_counties` | The data used here |
+
+The companion article *What a good choropleth has, and how ggcarto measures
+it* (`vignette("good-maps")`) goes through every metric these functions
+print and the design convention behind it.
+
+## Recipes
+
+```{r}
+#| label: recipes
+#| eval: false
+# The workflow
+class_guide(cty$x, "fisher")                  # inspect and choose
+class_summary(cty$x, "fisher", 5)             # classify
+plot_breaks(cty$x, "fisher", 5)
+p <- ggplot(cty) + geom_sf(aes(fill = x)) +   # map
+  scale_fill_intervals("brewer::YlGnBu", "fisher", 5, range = c(0.15, 1),
+                       labels = label_map(style = "interval", open = TRUE),
+                       na.value = "grey85") +
+  na_key("No data")
+diagnose_map(p)                               # diagnose
+
+# Money
+scale_fill_intervals("hcl::Batlow", style = "quantile", n = 5,
+                     labels = label_map(style = "interval", prefix = "$",
+                                        big.mark = ",", digits = 0))
+
+# A rate, diverging around the regional figure
+scale_fill_intervals("brewer::RdBu", reverse = TRUE, n = 6, midpoint = 4.6,
+                     limits = symmetric_limits(4.6),
+                     labels = label_map(style = "interval", suffix = "%", digits = 1))
+
+# Counts: integer breaks, "0 to 4" labels, a policy threshold that means it
+scale_fill_intervals("brewer::YlGnBu", style = "quantile", n = 5, as_count = TRUE)
+scale_fill_intervals("brewer::YlOrRd", breaks = c(0, 5, 10, 20, 100), closure = "left",
+                     labels = label_map(style = "interval", open = TRUE))
+
+# Counts with a long tail
+scale_fill_intervals("brewer::YlGnBu", style = "headtails",
+                     labels = label_map(style = "interval", big.mark = ","))
+
+# Same breaks on every map in a series
+brks <- c(0, 3, 4, 5, 6, 10)
+scale_fill_intervals("brewer::YlOrRd", breaks = brks,
+                     labels = label_map(style = "interval", suffix = "%", open = TRUE))
+
+# Outlier-proof, no decisions required
+scale_fill_rank("brewer::YlGnBu")
+
+# Two variables, one of them on a log scale
+cty$cls <- classify_bivariate(cty$income, cty$degree, n = 3, trans_x = "log10")
+map + scale_fill_bivariate("purple-green")
+inset_legend(map, legend_bivariate("purple-green", classes = cty$cls,
+                                   style = "diamond", ends = FALSE,
+                                   xlab = "Income", ylab = "% degree"))
+```
+
+## Session
+
+```{r}
+#| label: session
+sessionInfo()
+```
+
+## References {.unnumbered}
