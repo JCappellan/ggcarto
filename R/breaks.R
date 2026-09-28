@@ -326,7 +326,14 @@ compute_breaks <- function(x, style = "pretty", n = 5, args = list(),
   if (brks[1] > rng[1]) brks <- c(rng[1], brks)
   if (brks[length(brks)] < rng[2]) brks <- c(brks, rng[2])
 
-  sort(unique(brks))
+  brks <- sort(unique(brks))
+  # sd breaks carry their reference, so label_map(style = "sd") can write
+  # "-0.5 to +0.5 sd" from the breaks alone.
+  if (style == "sd") {
+    attr(brks, "mean") <- mean(x)
+    attr(brks, "sd") <- stats::sd(x)
+  }
+  brks
 }
 
 # Thresholds behind the large-N policy documented in ?compute_breaks.

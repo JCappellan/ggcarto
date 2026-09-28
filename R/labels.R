@@ -21,7 +21,16 @@
 #'   with `suffix = "%"` for proportions, or `scale = 1/1e6` with
 #'   `suffix = "M"`.
 #' @param style `"value"` labels each break point; `"interval"` labels the
-#'   class between break points.
+#'   class between break points; `"sd"` labels each class by its distance
+#'   from the mean in standard deviations, "-0.5 to +0.5 sd", with the data
+#'   values in brackets unless `show_values = FALSE`. Meant for
+#'   `style = "sd"` breaks, whose cut points *are* multiples of the standard
+#'   deviation, but it works for any classification. In a ggcarto scale,
+#'   [class_summary()] and [diagnose_map()] the mean and standard deviation
+#'   come from the data; called directly on a bare vector of breaks, where
+#'   nothing is known about the data, it falls back to interval labels.
+#' @param show_values With `style = "sd"`, whether to append the data
+#'   values of each class: "-0.5 to +0.5 sd (24% to 35%)".
 #' @param separator Text between the two ends of an interval.
 #' @param less_than,or_more,or_less Wording for open ends. Interval labels
 #'   use `less_than` and `or_more`: "Under 10", "50 and above". Value labels
@@ -45,6 +54,10 @@
 #' label_map(style = "interval")(c(0, 10, 20, 50))
 #' label_map(style = "interval", open = FALSE)(c(0, 10, 20, 50))
 #' label_map(suffix = "%")(c(-100, 0, 100))   # in a scale, "100% or more" when squished
+#'
+#' # standard-deviation classes, labelled in sd units
+#' x <- rnorm(500, 30, 11)
+#' class_summary(x, "sd", 5, labels = label_map(style = "sd", suffix = "%"))
 #' @export
 label_map <- function(digits = NULL,
                       big.mark = ",",
@@ -52,18 +65,20 @@ label_map <- function(digits = NULL,
                       prefix = "",
                       suffix = "",
                       scale = 1,
-                      style = c("value", "interval"),
+                      style = c("value", "interval", "sd"),
                       separator = " to ",
                       less_than = "Under ",
                       or_more = " and above",
                       or_less = " or less",
                       open = "auto",
                       right = TRUE,
+                      show_values = TRUE,
                       na_label = "Missing") {
   style <- match.arg(style)
   force(digits); force(big.mark); force(decimal.mark); force(prefix)
   force(suffix); force(scale); force(separator); force(less_than)
   force(or_more); force(or_less); force(open); force(right); force(na_label)
+  force(show_values)
   if (!(isTRUE(open) || isFALSE(open) || identical(open, "auto"))) {
     abort_ggcarto("`open` must be TRUE, FALSE or \"auto\".")
   }
@@ -88,8 +103,15 @@ label_map <- function(digits = NULL,
     }
     b <- as.numeric(x[keep])
     if (length(b) < 2L) return(fmt(b))
-    lab <- fmt(b, digits %||% auto_digits(b * scale))
     n <- length(b) - 1L
+    # sd labels need the mean and sd; breaks from compute_breaks(style =
+    # "sd") carry them, anything else falls back to interval labels.
+    m <- attr(x, "mean"); s <- attr(x, "sd")
+    if (style == "sd" && is.numeric(m) && is.numeric(s) && is.finite(s) && s > 0) {
+      return(format_sd_intervals(b[-(n + 1L)], b[-1L], m, s, parts,
+                                 open = resolve_open(open, c(TRUE, TRUE))))
+    }
+    lab <- fmt(b, digits %||% auto_digits(b * scale))
     out <- paste0(lab[seq_len(n)], separator, lab[seq_len(n) + 1L])
     if (isTRUE(open)) {
       out[1] <- paste0(less_than, lab[2])
@@ -101,11 +123,64 @@ label_map <- function(digits = NULL,
   attr(fn, "style") <- style
   # Exposed so ScaleBinnedMap can build "a to b" labels, which need each
   # class's lower edge -- information a labelling function never receives.
-  attr(fn, "parts") <- list(
+  parts <- list(
     fmt = fmt, digits = digits, scale = scale, separator = separator, open = open,
-    less_than = less_than, or_more = or_more, or_less = or_less, na_label = na_label
+    less_than = less_than, or_more = or_more, or_less = or_less, na_label = na_label,
+    style = style, show_values = isTRUE(show_values)
   )
+  attr(fn, "parts") <- parts
   fn
+}
+
+# ---------------------------------------------------------------------------
+# Labels in standard-deviation units: "-1.5 to -0.5 sd", "+1.5 sd and above".
+#
+# The outer classes run to the data extremes, which are not meaningful in sd
+# terms, so they are written open ("Below -1.5 sd") unless the labeller says
+# open = FALSE. With show_values, the data values follow in brackets, using
+# the same interval wording as everywhere else.
+# ---------------------------------------------------------------------------
+format_sd_intervals <- function(lower, upper, m, s, parts = NULL, open = NULL,
+                                digits = NULL, as_count = FALSE) {
+  p <- parts %||% attr(label_map(style = "sd"), "parts")
+  n <- length(upper)
+  if (!n) return(character(0))
+  if (!is.finite(s) || s <= 0) {
+    return(format_intervals(lower, upper, p, as_count = as_count, digits = digits, open = open))
+  }
+  open <- open %||% resolve_open(p$open, c(TRUE, TRUE))
+  sd_open <- if (isFALSE(p$open)) c(FALSE, FALSE) else c(TRUE, TRUE)
+  k_lo <- (lower - m) / s
+  k_hi <- (upper - m) / s
+  labs <- paste0(fmt_sd_k(k_lo), p$separator, fmt_sd_k(k_hi), " sd")
+  if (sd_open[1]) labs[1] <- paste0("Below ", fmt_sd_k(k_hi[1]), " sd")
+  if (sd_open[2]) labs[n] <- paste0(fmt_sd_k(k_lo[n]), " sd", p$or_more)
+  if (isTRUE(p$show_values)) {
+    vals <- format_intervals(lower, upper, p, as_count = as_count,
+                             digits = digits, open = open)
+    labs <- paste0(labs, " (", vals, ")")
+  }
+  labs
+}
+
+# "+0.5", "-1.5", "0": a signed multiple of the sd,  
+fmt_sd_k <- function(k) {
+  k <- round(k, 2)
+  out <- format(abs(k), trim = TRUE, drop0trailing = TRUE)
+  sign <- ifelse(k > 0, "+", ifelse(k < 0, "-", ""))
+  paste0(sign, out)
+}
+
+# Mean and sd of the values a classification was made from, for sd labels.
+sd_reference <- function(x) {
+  x <- x[is.finite(x)]
+  if (length(x) < 2L) return(list(mean = NA_real_, sd = NA_real_))
+  list(mean = mean(x), sd = stats::sd(x))
+}
+
+# Does this labeller (or its parts list) ask for sd labels?
+is_sd_labeller <- function(parts) {
+  identical(parts$style, "sd")
 }
 
 #' @export
@@ -180,8 +255,9 @@ resolve_labels <- function(labels, breaks_style) {
     })
   }
   if (is.character(labels) && length(labels) == 1L &&
-      labels %in% c("value", "values", "interval", "intervals", "range", "ranges")) {
-    st <- if (labels %in% c("value", "values")) "value" else "interval"
+      labels %in% c("value", "values", "interval", "intervals", "range", "ranges", "sd")) {
+    st <- if (labels %in% c("value", "values")) "value"
+          else if (labels == "sd") "sd" else "interval"
     return(label_map(style = st))
   }
   labels

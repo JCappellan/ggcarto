@@ -11,13 +11,14 @@ label_map(
   prefix = "",
   suffix = "",
   scale = 1,
-  style = c("value", "interval"),
+  style = c("value", "interval", "sd"),
   separator = " to ",
   less_than = "Under ",
   or_more = " and above",
   or_less = " or less",
   open = "auto",
   right = TRUE,
+  show_values = TRUE,
   na_label = "Missing"
 )
 }
@@ -35,7 +36,14 @@ with \code{suffix = "\%"} for proportions, or \code{scale = 1/1e6} with
 \code{suffix = "M"}.}
 
 \item{style}{\code{"value"} labels each break point; \code{"interval"} labels the
-class between break points.}
+class between break points; \code{"sd"} labels each class by its distance
+from the mean in standard deviations, "-0.5 to +0.5 sd", with the data
+values in brackets unless \code{show_values = FALSE}. Meant for
+\code{style = "sd"} breaks, whose cut points \emph{are} multiples of the standard
+deviation, but it works for any classification. In a ggcarto scale,
+\code{\link[=class_summary]{class_summary()}} and \code{\link[=diagnose_map]{diagnose_map()}} the mean and standard deviation
+come from the data; called directly on a bare vector of breaks, where
+nothing is known about the data, it falls back to interval labels.}
 
 \item{separator}{Text between the two ends of an interval.}
 
@@ -57,6 +65,9 @@ is closed is decided where the classes are made, by the \code{closure}
 argument of \code{\link[=scale_map]{scale_map()}}, \code{\link[=class_summary]{class_summary()}} and
 \code{\link[=classify_bivariate]{classify_bivariate()}}.}
 
+\item{show_values}{With \code{style = "sd"}, whether to append the data
+values of each class: "-0.5 to +0.5 sd (24\% to 35\%)".}
+
 \item{na_label}{Label used for the missing-data key.}
 }
 \value{
@@ -72,4 +83,8 @@ label_map(prefix = "$", big.mark = ",")(c(1000, 25000, 1e6))
 label_map(style = "interval")(c(0, 10, 20, 50))
 label_map(style = "interval", open = FALSE)(c(0, 10, 20, 50))
 label_map(suffix = "\%")(c(-100, 0, 100))   # in a scale, "100\% or more" when squished
+
+# standard-deviation classes, labelled in sd units
+x <- rnorm(500, 30, 11)
+class_summary(x, "sd", 5, labels = label_map(style = "sd", suffix = "\%"))
 }

@@ -86,8 +86,11 @@ ordinal scales; ggplot2's binned and continuous legends have no slot for
 one, so for interval and continuous scales add \code{\link[=na_key]{na_key()}} to the plot.}
 
 \item{labels}{Label specification: \code{NULL} (sensible default), the strings
-\code{"values"} or \code{"ranges"}, a \code{\link[=label_map]{label_map()}} result, a function, or a
-character vector.}
+\code{"values"}, \code{"ranges"} or \code{"sd"}, a \code{\link[=label_map]{label_map()}} result, a function, or
+a character vector. \code{"sd"} (or \code{label_map(style = "sd")}) writes each
+class as its distance from the mean, "-0.5 to +0.5 sd (24\% to 35\%)",
+which is what a \code{style = "sd"} classification is about; see
+\code{\link[=label_map]{label_map()}}.}
 
 \item{interpolate}{For \code{type = "intervals"}, how palette colours are
 assigned to classes. \code{"even"} (default) gives each class an evenly spaced

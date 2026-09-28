@@ -29,8 +29,10 @@
 #' @param as_count Treat `x` as counts (0, 1, 2, ...): breaks are rounded to
 #'   integers, classes are left-closed, and labels read "0 to 4", "5 to 9"
 #'   instead of "0 to 5", "5 to 10". Implies `closure = "left"`.
-#' @param labels A [label_map()] labeller used to write the interval labels.
-#'   `NULL` uses `label_map(style = "interval", open = TRUE)`.
+#' @param labels A [label_map()] labeller used to write the interval labels,
+#'   or the shorthand `"sd"` for `label_map(style = "sd")`, which writes the
+#'   classes as distances from the mean. `NULL` uses
+#'   `label_map(style = "interval", open = TRUE)`.
 #' @param ... Extra arguments for the style, passed to [compute_breaks()]
 #'   (`step` for `sd`, `thr` for `headtails`, `large_n`, `seed`, and
 #'   `midpoint`, `mirror`, `center`, `band` for a diverging variable classed
@@ -127,6 +129,7 @@ class_table <- function(x, breaks, closure = "right", as_count = FALSE,
   )
   if (length(breaks) < 2L || !length(x)) return(empty)
 
+  if (is.character(labels)) labels <- resolve_labels(labels, "interval")
   lab_fn <- labels %||% label_map(style = "interval", open = TRUE)
   parts <- attr(lab_fn, "parts") %||% attr(label_map(style = "interval"), "parts")
 
@@ -152,6 +155,10 @@ class_table <- function(x, breaks, closure = "right", as_count = FALSE,
     # n + 1 labels of which we drop the last
     out <- lab_fn(breaks)
     if (length(out) == k + 1L) out[-1L] else rep_len(out, k)
+  } else if (is_sd_labeller(parts)) {
+    ref <- sd_reference(x)
+    format_sd_intervals(lower, upper, ref$mean, ref$sd, parts, as_count = as_count,
+                        open = resolve_open(parts$open, c(FALSE, FALSE)))
   } else {
     format_intervals(lower, upper, parts, as_count = as_count,
                      open = if (is_mirrored(breaks)) resolve_open(parts$open, c(TRUE, TRUE)) else NULL)

@@ -28,6 +28,16 @@ out.
   never reaches are kept, reported by `class_summary()` and
   `diagnose_map()`, and exempt from `class_guide()`'s balance rules.
 
+## Standard-deviation classes
+
+* `label_map(style = "sd")`, and the shorthand `labels = "sd"` in the
+  interval scales and `class_summary()`, label each class by its distance
+  from the mean -- "-0.5 to +0.5 sd (25% to 36%)" -- so a `style = "sd"`
+  map says what it classified, instead of printing the cut points as
+  though they were chosen values. The mean and sd come from the data the
+  scale classified; breaks from `compute_breaks(style = "sd")` carry them
+  as attributes so the labeller works on its own too.
+
 ## Layout
 
 * `theme_ggcarto()`: a complete map theme in the manner of a newspaper graphic -- white page, near-black title, grey

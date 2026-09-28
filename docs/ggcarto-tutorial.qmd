@@ -297,6 +297,26 @@ Quantiles say the Boston–New York–Philadelphia corridor is one thing and
 everything else is another. Fisher's natural breaks land in between. Standard
 deviations center the story on "above or below the regional average".
 
+Notice, though, that the `sd` legend does not *say* that. The method decides
+where the breaks fall — at the mean plus and minus ½ and 1½ standard
+deviations here — but the legend still prints them as percentages, so a
+reader cannot tell that "35% to 46%" means "moderately above average". The
+fix is to label the classes in the units the method thinks in,
+`labels = "sd"`, and to use a diverging palette so the class around the mean
+is the neutral color:
+
+```{r}
+#| label: sd-labels
+#| fig-height: 4.5
+ne_map("pct_bachelors", title = "Bachelor's degrees, relative to the regional mean") +
+  scale_fill_intervals("brewer::PRGn", style = "sd", n = 5,
+                       labels = label_map(style = "sd", digits = 0, suffix = "%")) +
+  bottom_legend()
+```
+
+The values stay in brackets, because "typical" is only useful if the reader
+also learns that typical is about 30%.
+
 So the classification is an *argument*, not a setting, and you should be able
 to say which question your map answers [@monmonier2018]:
 
@@ -406,10 +426,15 @@ descriptive map. The two costs are that the cut points can look arbitrary
 (4.3%, 5.1%) and are specific to *this* dataset, so independently classified
 maps are not directly comparable [@coulson1987; @evans1977].
 
-**Standard deviation** (`sd`) puts the breaks at the mean and at ±1, ±2 ... SD
-from it. Use it when the question is "above or below average, and by how
-much", and pair it with a diverging palette so the mean is the neutral color.
-It only makes sense for roughly symmetric data — which unemployment is.
+**Standard deviation** (`sd`) places the breaks a fixed number of standard
+deviations from the mean. With an even `n` one break sits on the mean itself
+(`n = 4`: −1, 0, +1 SD); with an odd `n` the middle class straddles it
+(`n = 5`: −1½, −½, +½, +1½ SD); `step` changes the spacing. Use it when the
+question is "above or below average, and by how much", pair it with a
+diverging palette so the mean is the neutral color, and label the classes in
+SD units with `labels = "sd"` — the breaks are ordinary data values, and a
+legend that reads "35% to 46%" hides the one thing this method knows. It
+only makes sense for roughly symmetric data — which unemployment is.
 
 **Head/tail breaks** (`headtails`) are designed for heavy-tailed variables—
 population, income, or other measures in which a small number of areas are much
@@ -810,6 +835,18 @@ label_map(suffix = "%", digits = 0)(c(2.5, 7.5, 12.5))
 label_map(style = "interval", suffix = "%", digits = 0)(c(0, 5, 10, 31))
 label_map(style = "interval", suffix = "%", digits = 0, open = TRUE)(c(0, 5, 10, 31))
 label_map(prefix = "$", big.mark = ",", scale = 1/1000, suffix = "k")(c(12500, 48000))
+```
+
+A third style, `"sd"`, writes each class as its distance from the mean —
+"−0.5 to +0.5 sd (25% to 36%)" — which is the natural wording for
+`style = "sd"` breaks (see the four-method comparison above) and is available
+as the shorthand `labels = "sd"` in the scales and in `class_summary()`.
+`show_values = FALSE` drops the bracketed values.
+
+```{r}
+#| label: labels-sd
+class_summary(northeast_counties$pct_bachelors, "sd", 5,
+              labels = label_map(style = "sd", digits = 0, suffix = "%"))
 ```
 
 Two conventions are especially useful. First, round labels to a precision that
@@ -1326,7 +1363,7 @@ because it automates cartography, but because it makes consequential decisions
 | `compute_breaks(x, style, n)` | The numbers, outside ggplot2; exact and reproducible |
 | `map_styles()`, `map_styles_info()` | Which styles exist and what they do |
 | `as_palette()`, `map_palettes()`, `show_palette()`, `palette_sources()` | Palette access |
-| `label_map()` | Legend labels: ranges, open ends, `$`, `%`, thousands |
+| `label_map()` | Legend labels: ranges, open ends, `$`, `%`, thousands, SD units |
 | `trim_limits()`, `symmetric_limits()` | Data-driven limits |
 | `na_key()` | A "No data" legend key for interval and continuous scales |
 | `classify_bivariate()`, `scale_fill_bivariate()`, `bivariate_palette()` | Bivariate classes and colors, with per-variable styles and transforms |

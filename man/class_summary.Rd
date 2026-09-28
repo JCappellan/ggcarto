@@ -37,8 +37,10 @@ deliberately for integer data and rates with meaningful cut-offs.}
 integers, classes are left-closed, and labels read "0 to 4", "5 to 9"
 instead of "0 to 5", "5 to 10". Implies \code{closure = "left"}.}
 
-\item{labels}{A \code{\link[=label_map]{label_map()}} labeller used to write the interval labels.
-\code{NULL} uses \code{label_map(style = "interval", open = TRUE)}.}
+\item{labels}{A \code{\link[=label_map]{label_map()}} labeller used to write the interval labels,
+or the shorthand \code{"sd"} for \code{label_map(style = "sd")}, which writes the
+classes as distances from the mean. \code{NULL} uses
+\code{label_map(style = "interval", open = TRUE)}.}
 
 \item{...}{Extra arguments for the style, passed to \code{\link[=compute_breaks]{compute_breaks()}}
 (\code{step} for \code{sd}, \code{thr} for \code{headtails}, \code{large_n}, \code{seed}, and

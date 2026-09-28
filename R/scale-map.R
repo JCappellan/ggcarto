@@ -49,8 +49,11 @@
 #'   ordinal scales; ggplot2's binned and continuous legends have no slot for
 #'   one, so for interval and continuous scales add [na_key()] to the plot.
 #' @param labels Label specification: `NULL` (sensible default), the strings
-#'   `"values"` or `"ranges"`, a [label_map()] result, a function, or a
-#'   character vector.
+#'   `"values"`, `"ranges"` or `"sd"`, a [label_map()] result, a function, or
+#'   a character vector. `"sd"` (or `label_map(style = "sd")`) writes each
+#'   class as its distance from the mean, "-0.5 to +0.5 sd (24% to 35%)",
+#'   which is what a `style = "sd"` classification is about; see
+#'   [label_map()].
 #' @param closure For `type = "intervals"`, which side of a break is closed.
 #'   `"right"` (default, ggplot2's convention) puts a value equal to a break in
 #'   the class below it, `(a, b]`; `"left"` puts it in the class above,
@@ -264,7 +267,7 @@ map_scale_binned <- function(pal_fn, style, n, breaks, midpoint, limits, oob,
 
   lab <- resolve_labels(labels, "value")
   wants_ranges <- inherits(lab, "ggcarto_labeller") &&
-    identical(attr(lab, "style"), "interval")
+    attr(lab, "style") %in% c("interval", "sd")
   # One class per value: keys labelled with the values, not a stepped bar
   # whose ticks would sit between them.
   wants_unique <- identical(style, "unique") && is.null(breaks) &&

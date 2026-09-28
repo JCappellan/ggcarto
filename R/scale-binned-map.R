@@ -76,18 +76,7 @@ ScaleBinnedMap <- ggplot2::ggproto(
   get_breaks = function(self, limits = self$get_limits()) {
     if (is.function(self$map_breaks_fn)) {
       if (is.null(self$frozen_breaks)) {
-        # Classify what the map will show: values squished (or censored)
-        # into the limits, so `limits` never silently swallows classes.
-        vals <- self$data_values
-        if (length(vals) && is.function(self$oob)) {
-          vals <- self$oob(vals, limits)
-          vals <- vals[is.finite(vals)]
-        }
-        tr <- scale_transformation(self)
-        # Values are trained in transformed space; classify in data space.
-        if (!is.null(tr) && !identical(tr$name, "identity") && length(vals)) {
-          vals <- tr$inverse(vals)
-        }
+        vals <- classified_values(self, limits)
         if (length(vals)) {
           b <- self$map_breaks_fn(vals)
           if (length(b) >= 2L) self$frozen_breaks <- b
@@ -182,12 +171,37 @@ ScaleBinnedMap <- ggplot2::ggproto(
     auto <- if (!is.null(self$full_breaks)) c(TRUE, TRUE)
             else squished_ends(self$data_values, self$get_limits())
     open <- resolve_open(p$open, auto)
-    labs <- format_intervals(lower, upper, p, as_count = isTRUE(self$as_count),
-                             digits = d, open = open)
+    labs <- if (is_sd_labeller(p)) {
+      # Distance from the mean, measured on the values the classes were made
+      # from: squished into the limits, in data space.
+      ref <- sd_reference(classified_values(self, self$get_limits()))
+      format_sd_intervals(lower, upper, ref$mean, ref$sd, p,
+                          open = open, digits = d, as_count = isTRUE(self$as_count))
+    } else {
+      format_intervals(lower, upper, p, as_count = isTRUE(self$as_count),
+                       digits = d, open = open)
+    }
     labs[degenerate] <- p$fmt(upper[degenerate], d)
     labs
   }
 )
+
+# The values a binned map scale classifies: what the map will show, i.e. the
+# trained values squished (or censored) into the limits, so `limits` never
+# silently swallows classes -- and in data space, since values are trained
+# in transformed space.
+classified_values <- function(self, limits = self$get_limits()) {
+  vals <- self$data_values
+  if (length(vals) && is.function(self$oob)) {
+    vals <- self$oob(vals, limits)
+    vals <- vals[is.finite(vals)]
+  }
+  tr <- scale_transformation(self)
+  if (!is.null(tr) && !identical(tr$name, "identity") && length(vals)) {
+    vals <- tr$inverse(vals)
+  }
+  vals
+}
 
 # ---------------------------------------------------------------------------
 # ScaleContinuousRank
