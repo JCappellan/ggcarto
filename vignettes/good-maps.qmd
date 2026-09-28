@@ -239,8 +239,10 @@ they are where most maps go wrong.
 * **Borders.** Thin white or off-white polygon outlines (`linewidth = 0.1`)
   separate neighbouring areas of the same class without adding a colour.
   Drop them entirely at very small sizes.
-* **Background.** A warm off-white background lets the palest class show and
-  is easier on the eye than pure white. That, and the text hierarchy above,
+* **Background.** White, and nothing else on the page but the map, its
+  title, its legend and its source: colour is spent on the data. Trim the
+  palest class with `range = c(0.15, 1)` or give it an outline so it does
+  not vanish into the page. That restraint, and the text hierarchy above,
   is what `theme_ggcarto()` sets.
 * **Legend placement.** Under the map, in a row, for a wide region like the
   Northeast; to the right for a tall one. A bivariate legend is inset on the

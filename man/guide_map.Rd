@@ -11,7 +11,7 @@ guide_map(
   thickness = 0.35,
   title_position = "top",
   show_limits = TRUE,
-  frame = ggcarto_colours()[["muted"]],
+  frame = ggcarto_colours()[["line"]],
   ticks = ggcarto_colours()[["ink"]],
   reverse = NULL,
   ...

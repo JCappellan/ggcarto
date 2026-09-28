@@ -29,8 +29,8 @@ contrast with a sans body. \code{NULL} inherits \code{base_family}.}
 \code{"top-left"}, \code{"top-right"}, \code{"inset"} (inside the panel, top left) or
 \code{"none"}. Legends along the bottom or top are laid out horizontally.}
 
-\item{variant}{\code{"light"} (warm paper), \code{"dark"} (near-black canvas, light
-text) or \code{"print"} (smaller type, legend right, tight margins, white).}
+\item{variant}{\code{"light"} (white page), \code{"dark"} (near-black page, light
+text) or \code{"print"} (smaller type, legend right, tight margins).}
 
 \item{panel}{Background behind the map itself: \code{"none"} (the canvas) or
 \code{"grey"}, a light grey that makes very pale classes and white polygons
@@ -43,10 +43,15 @@ than maps).}
 A ggplot2 theme.
 }
 \description{
-A complete ggplot2 theme for choropleths: a warm off-white background,
-a bold navy title, grey subtitle and caption, no axes, no grid, and a
-legend that sits under the map, at the left, where a reader starts. It is
-what the maps in the ggcarto tutorial use. \code{variant = "dark"} inverts it
+A complete ggplot2 theme for choropleths in the manner of a good newspaper
+graphic: a white page, a bold near-black title, a grey subtitle and a
+small grey caption, no axes, no grid, no boxes, and a legend that sits
+under the map at the left, where a reader starts. Colour is left to the
+data. It is what the maps in the ggcarto tutorial use. For the typography
+to match, set \code{base_family} to a clean sans (e.g. \code{"Helvetica Neue"},
+\code{"Inter"}, \code{"Source Sans 3"}) and \code{title_family} to a serif or a heavier
+sans if you want the title to contrast; the device default is used
+otherwise so nothing breaks without system fonts. \code{variant = "dark"} inverts it
 for a dark page (reverse a sequential palette so its dark end stays
 legible); \code{"print"} shrinks the type, moves the legend to the right and
 tightens the margins for a figure in a two-column paper. With

@@ -17,8 +17,8 @@ test_that("theme_ggcarto builds in every variant and legend position", {
   expect_equal(th$plot.background$fill, ggcarto_colours()[["paper"]])
   expect_equal(th$legend.position, "bottom")
   expect_equal(theme_ggcarto(variant = "print")$legend.position, "right")
-  expect_equal(theme_ggcarto(variant = "dark")$plot.background$fill, "#14181d")
-  expect_equal(theme_ggcarto(panel = "grey")$panel.background$fill, "#ebe8e0")
+  expect_equal(theme_ggcarto(variant = "dark")$plot.background$fill, "#121212")
+  expect_equal(theme_ggcarto(panel = "grey")$panel.background$fill, "#f0f0f0")
   expect_true(is.character(ggcarto_colours()) && all(is_colour(ggcarto_colours())))
 })
 

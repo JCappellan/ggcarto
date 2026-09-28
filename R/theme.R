@@ -71,18 +71,19 @@ theme_palettes <- function(seq = NULL, div = NULL, cat = NULL, ...) {
 # ===========================================================================
 # theme_ggcarto(): a map theme
 #
-# Warm paper, navy titles, grey annotation, one orange accent, and nothing on
-# the panel that is not the map. The same tokens style the package's own
+# A newspaper graphic's discipline: white page, near-black title, greys for
+# everything that is not data, one red accent, hairlines rather than boxes,
+# and nothing on the panel that is not the map. The same tokens style the package's own
 # diagnostic plots, so a report built with ggcarto looks like one document.
 # ===========================================================================
 
 #' ggcarto's colours
 #'
 #' The handful of colours [theme_ggcarto()] and the diagnostic plots use:
-#' `paper` (the background), `ink` (titles, the darkest text), `text`
-#' (body text), `muted` (captions, axes), `line` (hairlines, gridlines),
-#' `band` (a faint fill), `slate` (the histogram blue), `accent` (the orange
-#' that marks a break or a suggestion) and `teal` (a second accent).
+#' `paper` (the page, white), `ink` (titles, near-black), `text` (body
+#' text), `muted` (captions, axes), `line` (hairlines, gridlines), `band` (a
+#' faint fill), `slate` (the histogram blue), `accent` (the red that marks a
+#' break or a suggestion) and `teal` (a second accent).
 #'
 #' @return A named character vector of hex colours.
 #' @examples
@@ -90,17 +91,22 @@ theme_palettes <- function(seq = NULL, div = NULL, cat = NULL, ...) {
 #' scales::show_col(ggcarto_colours())
 #' @export
 ggcarto_colours <- function() {
-  c(paper = "#f7f5ef", ink = "#1f2e46", text = "#555555", muted = "#8a8a8a",
-    line = "#dcd8cd", band = "#ebe7dc", slate = "#2f4a70", accent = "#c9582b",
-    teal = "#2a8a7c")
+  c(paper = "#ffffff", ink = "#121212", text = "#4a4a4a", muted = "#8c8c8c",
+    line = "#e4e4e4", band = "#f4f4f4", slate = "#3f6e9c", accent = "#d0463b",
+    teal = "#1f8a70")
 }
 
 #' A theme for maps
 #'
-#' A complete ggplot2 theme for choropleths: a warm off-white background,
-#' a bold navy title, grey subtitle and caption, no axes, no grid, and a
-#' legend that sits under the map, at the left, where a reader starts. It is
-#' what the maps in the ggcarto tutorial use. `variant = "dark"` inverts it
+#' A complete ggplot2 theme for choropleths in the manner of a good newspaper
+#' graphic: a white page, a bold near-black title, a grey subtitle and a
+#' small grey caption, no axes, no grid, no boxes, and a legend that sits
+#' under the map at the left, where a reader starts. Colour is left to the
+#' data. It is what the maps in the ggcarto tutorial use. For the typography
+#' to match, set `base_family` to a clean sans (e.g. `"Helvetica Neue"`,
+#' `"Inter"`, `"Source Sans 3"`) and `title_family` to a serif or a heavier
+#' sans if you want the title to contrast; the device default is used
+#' otherwise so nothing breaks without system fonts. `variant = "dark"` inverts it
 #' for a dark page (reverse a sequential palette so its dark end stays
 #' legible); `"print"` shrinks the type, moves the legend to the right and
 #' tightens the margins for a figure in a two-column paper. With
@@ -121,8 +127,8 @@ ggcarto_colours <- function() {
 #'   `"bottom"`, `"bottom-right"`, `"right"`, `"left"`, `"top"`,
 #'   `"top-left"`, `"top-right"`, `"inset"` (inside the panel, top left) or
 #'   `"none"`. Legends along the bottom or top are laid out horizontally.
-#' @param variant `"light"` (warm paper), `"dark"` (near-black canvas, light
-#'   text) or `"print"` (smaller type, legend right, tight margins, white).
+#' @param variant `"light"` (white page), `"dark"` (near-black page, light
+#'   text) or `"print"` (smaller type, legend right, tight margins).
 #' @param panel Background behind the map itself: `"none"` (the canvas) or
 #'   `"grey"`, a light grey that makes very pale classes and white polygons
 #'   visible.
@@ -157,13 +163,12 @@ theme_ggcarto <- function(base_size = 11, base_family = "", title_family = NULL,
   k <- ggcarto_colours()
   if (variant == "dark") {
     k[c("paper", "ink", "text", "muted", "line", "band")] <-
-      c("#14181d", "#f2f2f2", "#c9ced3", "#9aa0a6", "#2c333b", "#20262d")
+      c("#121212", "#f2f2f2", "#c9c9c9", "#8c8c8c", "#2e2e2e", "#1f1f1f")
   } else if (variant == "print") {
-    k[["paper"]] <- "white"
     base_size <- min(base_size, 10)
     if (legend == "bottom-left") legend <- "right"
   }
-  panel_fill <- if (panel == "grey") (if (variant == "dark") "#1f262e" else "#ebe8e0") else NA
+  panel_fill <- if (panel == "grey") (if (variant == "dark") "#1e1e1e" else "#f0f0f0") else NA
   margins <- if (variant == "print") c(8, 8, 6, 8) else c(14, 16, 12, 16)
   el <- ggplot2::element_text
 
@@ -172,19 +177,20 @@ theme_ggcarto <- function(base_size = 11, base_family = "", title_family = NULL,
       plot.background = ggplot2::element_rect(fill = k[["paper"]], colour = NA),
       panel.background = ggplot2::element_rect(fill = panel_fill, colour = NA),
       plot.title = el(family = title_family %||% base_family, colour = k[["ink"]],
-                      face = "bold", size = ggplot2::rel(1.5), hjust = 0,
-                      lineheight = 1.05, margin = ggplot2::margin(b = 6)),
-      plot.subtitle = el(colour = k[["text"]], size = ggplot2::rel(0.95), hjust = 0,
-                         lineheight = 1.15, margin = ggplot2::margin(b = 10)),
-      plot.caption = el(colour = k[["muted"]], size = ggplot2::rel(0.75), hjust = 0,
-                        lineheight = 1.2, margin = ggplot2::margin(t = 10)),
+                      face = "bold", size = ggplot2::rel(1.6), hjust = 0,
+                      lineheight = 1.05, margin = ggplot2::margin(b = 5)),
+      plot.subtitle = el(colour = k[["text"]], size = ggplot2::rel(1), hjust = 0,
+                         lineheight = 1.2, margin = ggplot2::margin(b = 12)),
+      plot.caption = el(colour = k[["muted"]], size = ggplot2::rel(0.72), hjust = 0,
+                        lineheight = 1.25, margin = ggplot2::margin(t = 12)),
       plot.title.position = "plot",
       plot.caption.position = "plot",
       plot.margin = ggplot2::margin(margins[1], margins[2], margins[3], margins[4]),
-      legend.title = el(colour = k[["ink"]], size = ggplot2::rel(0.85), face = "bold"),
-      legend.text = el(colour = k[["text"]], size = ggplot2::rel(0.8)),
-      legend.key.size = grid::unit(10, "pt"),
-      legend.key.spacing.x = grid::unit(10, "pt"),
+      legend.title = el(colour = k[["ink"]], size = ggplot2::rel(0.8), face = "bold",
+                        margin = ggplot2::margin(b = 4)),
+      legend.text = el(colour = k[["text"]], size = ggplot2::rel(0.78)),
+      legend.key.size = grid::unit(9, "pt"),
+      legend.key.spacing.x = grid::unit(12, "pt"),
       legend.background = ggplot2::element_blank(),
       legend.key = ggplot2::element_blank(),
       legend.margin = ggplot2::margin(6, 0, 0, 0),
@@ -197,7 +203,7 @@ theme_ggcarto <- function(base_size = 11, base_family = "", title_family = NULL,
   if ("legend.ticks" %in% names(ggplot2::theme())) {
     th <- th + ggplot2::theme(
       legend.ticks = ggplot2::element_line(colour = k[["ink"]], linewidth = 0.4),
-      legend.frame = ggplot2::element_rect(colour = k[["muted"]], linewidth = 0.3)
+      legend.frame = ggplot2::element_rect(colour = k[["line"]], linewidth = 0.3)
     )
   }
   if (isTRUE(axes)) {
@@ -213,7 +219,8 @@ theme_ggcarto <- function(base_size = 11, base_family = "", title_family = NULL,
       axis.title.x = el(colour = k[["muted"]], size = ggplot2::rel(0.8),
                         margin = ggplot2::margin(t = 6)),
       panel.grid.major.y = ggplot2::element_line(colour = k[["line"]], linewidth = 0.3),
-      panel.spacing = grid::unit(8, "pt")
+      axis.line.x = ggplot2::element_line(colour = k[["line"]], linewidth = 0.4),
+      panel.spacing = grid::unit(10, "pt")
     )
   }
   th + legend_placement(legend)
@@ -283,7 +290,7 @@ legend_placement <- function(legend) {
 guide_map <- function(type = c("bar", "steps", "keys"),
                       direction = c("horizontal", "vertical"),
                       length = 6, thickness = 0.35, title_position = "top",
-                      show_limits = TRUE, frame = ggcarto_colours()[["muted"]],
+                      show_limits = TRUE, frame = ggcarto_colours()[["line"]],
                       ticks = ggcarto_colours()[["ink"]], reverse = NULL, ...) {
   type <- match.arg(type)
   direction <- match.arg(direction)

@@ -11,10 +11,10 @@ A named character vector of hex colours.
 }
 \description{
 The handful of colours \code{\link[=theme_ggcarto]{theme_ggcarto()}} and the diagnostic plots use:
-\code{paper} (the background), \code{ink} (titles, the darkest text), \code{text}
-(body text), \code{muted} (captions, axes), \code{line} (hairlines, gridlines),
-\code{band} (a faint fill), \code{slate} (the histogram blue), \code{accent} (the orange
-that marks a break or a suggestion) and \code{teal} (a second accent).
+\code{paper} (the page, white), \code{ink} (titles, near-black), \code{text} (body
+text), \code{muted} (captions, axes), \code{line} (hairlines, gridlines), \code{band} (a
+faint fill), \code{slate} (the histogram blue), \code{accent} (the red that marks a
+break or a suggestion) and \code{teal} (a second accent).
 }
 \examples{
 ggcarto_colours()

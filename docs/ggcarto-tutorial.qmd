@@ -148,7 +148,7 @@ Every scale in this document works identically with `geom_polygon()`,
 layer; sf is used here because it is what most people map with.
 :::
 
-`theme_ggcarto()` is the package's map theme — warm paper, a navy title,
+`theme_ggcarto()` is the package's map theme — a white page, a near-black title,
 grey annotation, no axes, the legend where a reader starts — and it is set as
 the default above (`legend = "right"` here because the maps are wide; the
 default puts it bottom-left). One helper, so that each map is one line and

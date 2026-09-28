@@ -30,7 +30,7 @@ out.
 
 ## Layout
 
-* `theme_ggcarto()`: a complete map theme -- warm paper, navy title, grey
+* `theme_ggcarto()`: a complete map theme in the manner of a newspaper graphic -- white page, near-black title, grey
   annotation, no axes, legend bottom-left -- with `legend` positions
   (including `"inset"`), `variant = "dark"` and `"print"`, `panel = "grey"`
   and `title_family`. Its colours are `ggcarto_colours()`, and the

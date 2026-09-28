@@ -230,7 +230,7 @@ ends "100% or more" without being asked (`label_map(open = "auto")`).
 
 ## Look
 
-`theme_ggcarto()` is a complete map theme -- warm paper, navy title, grey
+`theme_ggcarto()` is a complete map theme in the manner of a newspaper graphic -- white page, near-black title, grey
 annotation, legend where the reader starts, with dark and print variants --
 and `guide_map()` sizes the legend for it. The package's diagnostic charts
 are drawn in the same style. Bivariate maps get 17 corner presets plus the
