@@ -29,9 +29,13 @@ jobs:
         with:
           r-version: ${{ matrix.config.r }}
           use-public-rspm: true
+      # local::. installs ggcarto itself before the check: the Quarto vignette
+      # engine renders in a separate R process that cannot see the temporary
+      # library R CMD build installs into, so library(ggcarto) in a vignette
+      # needs the package in the normal library too.
       - uses: r-lib/actions/setup-r-dependencies@v2
         with:
-          extra-packages: any::rcmdcheck
+          extra-packages: any::rcmdcheck, local::.
           needs: check
       - uses: r-lib/actions/check-r-package@v2
         with:
