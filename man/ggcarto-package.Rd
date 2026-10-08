@@ -6,10 +6,11 @@
 \alias{ggcarto-package}
 \title{ggcarto: cartographic colour and fill scales for ggplot2}
 \description{
-ggcarto gives ggplot2 one consistent way to colour a variable, built around
-the things thematic mapping actually needs.
+\if{html}{\figure{logo.png}{options: style="float: right; height: 139px;" alt="ggcarto hex logo"}}
 }
 \details{
+ggcarto gives ggplot2 one consistent way to colour a variable, built around
+the things thematic mapping actually needs.
 \itemize{
 \item \strong{One engine.} \code{\link[=scale_map]{scale_map()}} covers continuous ramps, classed intervals,
 categories, ordered categories and ranks. Switching between them is a

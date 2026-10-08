@@ -1,4 +1,4 @@
-# ggcarto
+# ggcarto <img src="man/figures/logo.png" align="right" height="139" alt="ggcarto hex logo" />
 
 <!-- badges: start -->
 [![R-CMD-check](https://github.com/jcapellan/ggcarto/actions/workflows/R-CMD-check.yaml/badge.svg)](https://github.com/jcapellan/ggcarto/actions/workflows/R-CMD-check.yaml)

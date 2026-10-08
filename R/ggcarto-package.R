@@ -1,5 +1,7 @@
 #' ggcarto: cartographic colour and fill scales for ggplot2
 #'
+#' \if{html}{\figure{logo.png}{options: style="float: right; height: 139px;" alt="ggcarto hex logo"}}
+#'
 #' ggcarto gives ggplot2 one consistent way to colour a variable, built around
 #' the things thematic mapping actually needs.
 #'
